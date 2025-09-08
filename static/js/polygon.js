@@ -4,7 +4,21 @@
 // ==================================
 
 // ---- Base map + Esri imagery ----
-const map = L.map('map', { zoomSnap: 0.25, zoomDelta: 0.25 });
+const map = L.map('map', {
+  zoomSnap: 1,      
+  zoomDelta: 1,
+  keyboard: false, 
+});
+
+function zoomBy(levels) {
+  const z = map.getZoom();
+  map.setZoom(z + levels, { animate: true });
+}
+
+const BASE_STEP   = 1; 
+const MULT_FAST   = 5;  
+const MULT_ULTRA  = 10;
+
 L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   { attribution: 'Esri' }
@@ -266,7 +280,7 @@ function initDraw(map) {
   window.POLYCTX = { map, drawnItems, drawControl };
 
   const PAN_STEP  = 100; // px
-  const ZOOM_STEP = 1;
+  const ZOOM_STEP = 2;
 
   function startPolygonDraw() {
     if (!window.L || !window.L.Draw?.Polygon) return;
@@ -300,33 +314,40 @@ function initDraw(map) {
     }
   }
 
-  window.addEventListener('keydown', (e) => {
-    const tag = (e.target && e.target.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isComposing) return;
 
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
+window.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isComposing) return;
 
-    switch (e.key) {
-      case '+':
-      case '=': e.preventDefault(); zoomDelta(+ZOOM_STEP); break;
-      case '-': e.preventDefault(); zoomDelta(-ZOOM_STEP); break;
+  // جلوگیری از رفتار پیش‌فرض و برگشت به هندلرهای دیگر
+  const kill = () => { e.preventDefault(); e.stopPropagation(); };
 
-      case 'ArrowUp':
-      case 'w': case 'W': e.preventDefault(); panBy(0, -PAN_STEP); break;
-      case 'ArrowDown':
-      case 's': case 'S': e.preventDefault(); panBy(0, +PAN_STEP); break;
-      case 'ArrowLeft':
-      case 'a': case 'A': e.preventDefault(); panBy(-PAN_STEP, 0); break;
-      case 'ArrowRight':
-      case 'd': case 'D': e.preventDefault(); panBy(+PAN_STEP, 0); break;
+  // ذخیره
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { kill(); save(); return; }
 
-      case 'p': case 'P': e.preventDefault(); startPolygonDraw(); break;
-      case 'e': case 'E': e.preventDefault(); toggleEditMode(); break;
+  // ضرایب: Shift=خیلی زیاد، Alt=زیاد، عادی=۱
+  const mult = e.shiftKey ? MULT_ULTRA : (e.altKey ? MULT_FAST : 1);
 
-      case '?':
-      case 'h': case 'H': e.preventDefault(); toggleHelp(); break;
-    }
-  });
+  switch (e.key) {
+    case '+':
+    case '=': kill(); zoomBy(+BASE_STEP * mult); break;
+    case '-': kill(); zoomBy(-BASE_STEP * mult); break;
+
+    case 'ArrowUp':
+    case 'w': case 'W': kill(); panBy(0, -100); break;
+    case 'ArrowDown':
+    case 's': case 'S': kill(); panBy(0, +100); break;
+    case 'ArrowLeft':
+    case 'a': case 'A': kill(); panBy(-100, 0); break;
+    case 'ArrowRight':
+    case 'd': case 'D': kill(); panBy(+100, 0); break;
+
+    case 'p': case 'P': kill(); startPolygonDraw(); break;
+    case 'e': case 'E': kill(); toggleEditMode(); break;
+    case '?':
+    case 'h': case 'H': kill(); toggleHelp(); break;
+  }
+});
 
   // --------- Mouse position (light Folium-like) ----------
   const MousePos = L.Control.extend({
