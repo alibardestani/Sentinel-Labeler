@@ -70,10 +70,9 @@ def _resampling_from_str(name: str) -> Resampling:
 
 @dataclass
 class BandRef:
-    band: str  # e.g., "B02"
-    res_m: int  # 10, 20, 60
-    path_in_zip: str  # internal path (.jp2) inside the ZIP
-
+    band: str
+    res_m: int
+    path_in_zip: str
 
 class SentinelProductReader:
     """Read Sentinel-2 Level-2A bands and masks directly from a .zip product.
@@ -113,28 +112,44 @@ class SentinelProductReader:
             raise FileNotFoundError(self.zip_path)
         self._band_index: Dict[Tuple[str, int], BandRef] = {}
         self._scl_path: Optional[str] = None
-        self._index_archive()
+        
+        if hasattr(self, "_index_archive"):
+            self._index_archive()
+        else:
+            self.index_archive()
 
     # ------------------------- Discovery & Indexing ------------------------- #
     def _index_archive(self) -> None:
-        """Scan the ZIP and index band JP2s and the SCL raster.
+        self.index_archive()
+        
+    def index_archive(self) -> None:
+        band_re = re.compile(r"_B(\d{2}|8A)_(10|20|60)m\.jp2$", re.IGNORECASE)
+        scl_re  = re.compile(r"_SCL_(10|20|60)m\.jp2$", re.IGNORECASE)
 
-        A Sentinel-2 L2A ZIP typically contains JP2 files named like:
-        ``..._B02_10m.jp2`` or ``..._SCL_20m.jp2`` within GRANULE/.../IMG_DATA/.
-        This method builds a mapping (band, res_m) -> BandRef, and stores the SCL
-        path if found.
-        """
-        band_re = re.compile(r"_B(\d{2}|8A)_(10|20|60)m\.jp2$")
-        scl_re = re.compile(r"_SCL_(10|20|60)m\.jp2$")
         with zipfile.ZipFile(self.zip_path, "r") as z:
             for name in z.namelist():
-                if band_re.search(name):
-                    b, res = band_re.search(name).groups()
-                    band = f"B{b}"
-                    res_m = int(res)
+                base = os.path.basename(name)
+
+                # --- رد کردن آشغال‌های macOS ---
+                if "/__MACOSX/" in name or base.startswith("._"):
+                    continue
+
+                # فقط JP2های واقعی
+                if not name.lower().endswith(".jp2"):
+                    continue
+
+                m_band = band_re.search(name)
+                if m_band:
+                    b, res = m_band.groups()
+                    band   = f"B{b}"
+                    res_m  = int(res)
                     self._band_index[(band, res_m)] = BandRef(band, res_m, name)
-                elif scl_re.search(name):
+                    continue
+
+                m_scl = scl_re.search(name)
+                if m_scl:
                     self._scl_path = name
+
 
     # ------------------------------ Utilities ------------------------------ #
     def _vsizip(self, inner: str) -> str:

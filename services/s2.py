@@ -8,9 +8,11 @@ from PIL import Image
 import rasterio
 from pyproj import Transformer
 import rasterio as rio
+from rasterio.warp import transform_bounds
 
 from config import settings
 from services.progress import reset as progress_reset, set_progress
+from Library.S2reader import SentinelProductReader
 
 
 from pathlib import Path
@@ -495,3 +497,78 @@ def prelabel(method: str, **kwargs):
     else:
         set_progress("error", 100, "روش نامعتبر")
         return False, 'unknown method'
+    
+def _linear_stretch01(x: np.ndarray, low=2, high=98) -> np.ndarray:
+    lo = np.nanpercentile(x, low)
+    hi = np.nanpercentile(x, high)
+    den = max(1e-6, (hi - lo))
+    y = (x - lo) / den
+    return np.clip(y, 0.0, 1.0)
+
+def build_rgb_esri_aligned_tif_from_zip(zip_path: Path) -> Path:
+    rdr = SentinelProductReader(str(zip_path))
+    out_tif = settings.S2_RGB_TIF
+
+    rdr.export_esri_aligned_rgb_tif(str(out_tif), resolution=10)
+    return out_tif
+
+def save_quicklook_png_from_tif(tif_path: Path, max_dim: int = 4096) -> Path:
+    with rasterio.open(tif_path) as src:
+        r, g, b = src.read(1), src.read(2), src.read(3)
+    if r.dtype != np.uint8:
+        r8 = (_linear_stretch01(r) * 255).round().astype(np.uint8)
+        g8 = (_linear_stretch01(g) * 255).round().astype(np.uint8)
+        b8 = (_linear_stretch01(b) * 255).round().astype(np.uint8)
+    else:
+        r8, g8, b8 = r, g, b
+
+    img = np.dstack([r8, g8, b8])
+    im = Image.fromarray(img)
+    W, H = im.size
+    if max(W, H) > max_dim:
+        s = max_dim / float(max(W, H))
+        im = im.resize((int(W*s), int(H*s)), Image.BILINEAR)
+
+    out_png = settings.BACKDROP_IMAGE
+    tmp = out_png.with_suffix(".tmp.png")
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    im.save(tmp)
+    tmp.replace(out_png)
+    return out_png
+
+def _meters_to_deg_at_lat(dx_m: float, dy_m: float, lat_deg: float) -> Tuple[float, float]:
+    lat_m = 111320.0
+    lon_m = lat_m * np.cos(np.deg2rad(lat_deg))
+    dlon = dx_m / max(1e-6, lon_m)
+    dlat = dy_m / lat_m
+    return dlon, dlat
+
+
+def s2_bounds_wgs84_from_tif(tif_path: Path) -> Dict[str, float]:
+    dx_m = dy_m = 0.0
+    if settings.ALIGN_OFFSET_FILE.exists():
+        import json
+        try:
+            j = json.loads(settings.ALIGN_OFFSET_FILE.read_text())
+            dx_m = float(j.get("dx_m", 0.0))
+            dy_m = float(j.get("dy_m", 0.0))
+        except Exception:
+            pass
+
+    with rasterio.open(tif_path) as src:
+        if src.crs is None:
+            raise ValueError("TIFF has no CRS")
+        if src.crs.to_epsg() != 4326:
+            # ایمن: تبدیل به 4326
+            l, b, r, t = transform_bounds(src.crs, CRS.from_epsg(4326), *src.bounds, densify_pts=21)
+        else:
+            l, b, r, t = src.bounds
+
+    lat_mid = (t + b) / 2.0
+    dlon, dlat = _meters_to_deg_at_lat(dx_m, dy_m, lat_mid)
+    return {
+        "lon_min": l + dlon,
+        "lat_min": b + dlat,
+        "lon_max": r + dlon,
+        "lat_max": t + dlat,
+    }

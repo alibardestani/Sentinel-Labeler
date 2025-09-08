@@ -6,7 +6,7 @@ import json
 import math
 import os
 import shutil
-import tempfile
+import tempfile , traceback,  time
 import zipfile
 from typing import Tuple
 
@@ -34,6 +34,9 @@ from services.s2 import (
     prelabel,
     s2_bounds_wgs84,
     set_s2_scene_dir_and_rebuild,
+    build_rgb_esri_aligned_tif_from_zip,
+    save_quicklook_png_from_tif,
+    s2_bounds_wgs84_from_tif,
 )
 
 api_bp = Blueprint("api", __name__)
@@ -111,31 +114,11 @@ def align_offset():
 # ------------------------------------------------------------------------------
 # S2 bounds (WGS84) + alignment offset
 # ------------------------------------------------------------------------------
-@api_bp.route("/s2_bounds_wgs84")
+@api_bp.route("/s2_bounds_wgs84", methods=["GET"])
 def api_s2_bounds_wgs84():
-    b = s2_bounds_wgs84()
-    if b is None:
-        return jsonify({"error": "s2_rgb.tif not found"}), 404
-
-    dx_m, dy_m = _load_align_offset_m()
-    lat_min, lon_min, lat_max, lon_max = (
-        b["lat_min"],
-        b["lon_min"],
-        b["lat_max"],
-        b["lon_max"],
-    )
-    lat_min, lon_min, lat_max, lon_max = _apply_offset_to_bounds(
-        lat_min, lon_min, lat_max, lon_max, dx_m, dy_m
-    )
-    return jsonify(
-        {
-            "lon_min": lon_min,
-            "lat_min": lat_min,
-            "lon_max": lon_max,
-            "lat_max": lat_max,
-            "offset_m": {"dx_m": dx_m, "dy_m": dy_m},
-        }
-    )
+    from services.s2 import s2_bounds_wgs84_from_tif
+    b = s2_bounds_wgs84_from_tif(settings.S2_RGB_TIF)
+    return jsonify(b)
 
 # ------------------------------------------------------------------------------
 # Polygons
@@ -307,23 +290,37 @@ def _find_safe_root(dest_dir: Path) -> Path:
     return safes[0] if safes else dest_dir
 
 
-@api_bp.post("/upload_safe_zip")
+@api_bp.route("/upload_safe_zip", methods=["POST"])
 def upload_safe_zip():
     try:
         f = request.files.get("file")
         if not f:
             return jsonify(ok=False, error="no file"), 400
 
+        t0 = time.time()
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         f.save(tmp.name)
-        current_app.logger.info("[upload] saved zip to %s (%.1f KB)", tmp.name, Path(tmp.name).stat().st_size/1024)
+        current_app.logger.info(
+            "[upload] saved zip to %s (%.1f KB)",
+            tmp.name, Path(tmp.name).stat().st_size/1024
+        )
 
-        meta = set_s2_scene_dir_and_rebuild(tmp.name)
-        return jsonify(ok=True, **meta, quicklook="/api/output/rgb_quicklook.png")
+        tif_path = build_rgb_esri_aligned_tif_from_zip(Path(tmp.name))
+
+        save_quicklook_png_from_tif(tif_path)
+
+        bounds = s2_bounds_wgs84_from_tif(tif_path)
+
+        current_app.logger.info("[upload] done in %.2fs", time.time() - t0)
+        return jsonify(
+            ok=True,
+            quicklook="/api/output/" + settings.BACKDROP_IMAGE.name,
+            bounds=bounds,  
+        )
     except Exception as e:
         current_app.logger.exception("upload_safe_zip failed")
-        return jsonify(ok=False, error=str(e)), 500
-    
+        return jsonify(ok=False, error=str(e), tb=traceback.format_exc()), 500
+
 @api_bp.route("/api/output/<path:fname>", methods=["GET"])
 def api_output(fname):
     base = settings.OUTPUT_DIR
