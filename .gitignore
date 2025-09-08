@@ -1,0 +1,49 @@
+# --- raw satellite data & big assets ---
+# Sentinel-2 SAFE and band files
+*.SAFE/
+*.jp2
+*.tif
+*.tiff
+
+# ML / DL model weights
+*.pt
+*.pth
+*.onnx
+*.h5
+*.ckpt
+*.pb
+
+# numpy archives (large)
+*.npz
+*.npy
+
+# archives / videos (huge, rarely needed in repo)
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.mp4
+*.mkv
+
+# --- build / runtime outputs ---
+/output/
+data/
+models/
+runs/
+checkpoints/
+
+# cache / temps
+__pycache__/
+*.log
+*.tmp
+.DS_Store
+
+# IMPORTANT:
+# اگر PNG های UI لازم داری (آیکون‌ها در static/)،
+# کل PNG را ignore نکن! فقط خروجی‌ها را پوشش بده.
+# نمونه: اگر خروجی PNG داری، همه در /output/ هستند که بالا ignore شده است.
+
+# ignore generated outputs
+output/
+__pycache__/
+*.pyc

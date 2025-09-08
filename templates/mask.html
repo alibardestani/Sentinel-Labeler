@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Mask Editing – Sentinel Labeler{% endblock %}
+{% block mask_controls_class %}{% endblock %}
+{% block main %}
+<div class="canvas-wrap" style="position:relative;">
+  <canvas id="backdrop"     style="position:absolute; inset:0;"></canvas>
+  <canvas id="mask"         style="position:absolute; inset:0;"></canvas>
+  <canvas id="cursorCanvas" style="position:absolute; inset:0; z-index:10;"></canvas>
+</div>
+{% endblock %}
+
+{% block right_panel %}
+  <div class="section">
+    <div class="muted">کلاس برچسب</div>
+    <select id="classId">
+      <option value="0">0 — Background</option>
+      <option value="1" selected>1 — Vegetation</option>
+      <option value="2">2 — Other</option>
+    </select>
+  </div>
+  <div class="section">
+    <div class="muted">ابزارها</div>
+    <div class="toolbar">
+      <button class="btn" id="toolBrush">قلم</button>
+      <button class="btn" id="toolPan">جابجایی</button>
+      <button class="btn" id="toolZoom">بزرگ‌نمایی</button>
+    </div>
+  </div>
+  <div class="section">
+    <div class="muted">فایل‌ها</div>
+    <div class="toolbar">
+      <a class="btn" href="/api/output/mask.png" target="_blank">مشاهده ماسک ذخیره‌شده</a>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/mask.js') }}"></script>
+{% endblock %}
