@@ -185,14 +185,14 @@ async function runPrelabel() {
       const r = await fetch('/api/model_info', { cache: 'no-store' });
       const info = await r.json();
       if (!info.loaded) {
-        box.textContent = 'مدلی لود نشده است.';
+        box.textContent = 'No model loaded';
       } else {
         const providers = (info.providers || []).join(', ');
         const bands = (info.bands || []).join(', ');
         box.textContent = `Loaded • providers: ${providers} • tile=${info.tile_size} • bands=${bands}`;
       }
     } catch {
-      box.textContent = 'خطا در گرفتن اطلاعات مدل';
+      box.textContent = 'Model info error';
     }
   }
 

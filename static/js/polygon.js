@@ -541,12 +541,57 @@ document.addEventListener('click', (e) => {
 
 // ========== Draw / Edit polygons ==========
 function initDraw() {
-  dlog('initDraw()');
-  const drawnItems = new L.FeatureGroup();
-  map.addLayer(drawnItems);
+  // --- Helpers ---
+  function computeGeomProps(layer) {
+    try {
+      const gj = layer.toGeoJSON();
+      const area = turf.area(gj);
+      const ctr = turf.centroid(gj);
+      const [lon, lat] = ctr.geometry.coordinates;
+      return { area_m2: +area, centroid_lat: +lat, centroid_lon: +lon };
+    } catch {
+      return {};
+    }
+  }
 
-  const defaultProps = { label: '', class_id: 1, color: '#00ff00' };
-  let selectedLayer = null, selectedStyleBackup = null;
+  function fillFormFromLayer(layer) {
+    const p = layer._props || {};
+    const geom = computeGeomProps(layer);
+    const area = p.area_m2 ?? geom.area_m2 ?? '';
+    const lat  = p.centroid_lat ?? geom.centroid_lat ?? '';
+    const lon  = p.centroid_lon ?? geom.centroid_lon ?? '';
+
+    document.getElementById('polyUsesFruit').value = p.uses_fruit ?? '';
+    document.getElementById('polyCode').value      = p.code ?? '';
+    document.getElementById('polyAreaM2').value    = area ? Number(area).toFixed(2) : '';
+    document.getElementById('polyLat').value       = lat  ? Number(lat).toFixed(6) : '';
+    document.getElementById('polyLon').value       = lon  ? Number(lon).toFixed(6) : '';
+
+    setLabelUIFromValue(p.label ?? '');
+    document.getElementById('polyClass').value = String(p.class_id ?? 1);
+    document.getElementById('polyColor').value = p.color ?? '#00ff00';
+  }
+
+  function readFormToLayer(layer) {
+    const uses_fruit   = document.getElementById('polyUsesFruit').value.trim();
+    const code         = document.getElementById('polyCode').value.trim();
+    const area_m2      = parseFloat(document.getElementById('polyAreaM2').value || '0') || 0;
+    const centroid_lat = parseFloat(document.getElementById('polyLat').value || '0') || 0;
+    const centroid_lon = parseFloat(document.getElementById('polyLon').value || '0') || 0;
+
+    const label    = getSelectedLabelLocal();
+    const class_id = parseInt(document.getElementById('polyClass').value || '1', 10);
+    const color    = (document.getElementById('polyColor').value || '#00ff00').toLowerCase();
+
+    layer._props = {
+      ...(layer._props || {}),
+      uses_fruit, code, area_m2, centroid_lat, centroid_lon,
+      label, class_id, color
+    };
+
+    layer.setStyle?.({ color, weight: 2 });
+    layer.getTooltip()?.setContent(layerTooltipHtml(layer._props));
+  }
 
   function layerTooltipHtml(props) {
     const p = props || {};
@@ -554,85 +599,37 @@ function initDraw() {
     return `<div style="font:12px/1.4 sans-serif">
       <div><b>Label:</b> ${p.label ?? ''}</div>
       <div><b>Class:</b> ${p.class_id ?? ''}</div>
-      <div><b>Area (m²):</b> ${fx(p.area_m2)}</div>
-      <div><b>Perimeter (m):</b> ${fx(p.perimeter_m)}</div>
+      <div><b>Fruit Type:</b> ${p.uses_fruit ?? ''}</div>
+      <div><b>Code:</b> ${p.code ?? ''}</div>
+      <div><b>Area (m²):</b> ${fx(p.area_m2, 2)}</div>
       <div><b>Centroid:</b> ${fx(p.centroid_lat, 6)}, ${fx(p.centroid_lon, 6)}</div>
       <div><b>UID:</b> ${p.uid ?? ''}</div>
     </div>`;
   }
 
-  const enableEditFor = (layer) => { try { if (layer?.editing && !layer.editing.enabled()) layer.editing.enable(); } catch { } };
-  const disableEditFor = (layer) => { try { if (layer?.editing && layer.editing.enabled()) layer.editing.disable(); } catch { } };
+  // --- Init ---
+  dlog('initDraw()');
+  const drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
 
-  function setBrushActive(on) {
-    BRUSH_ACTIVE = !!on;
-    document.body.classList.toggle('tool-brush', BRUSH_ACTIVE); // برای CSS
+  const defaultProps = { label: '', class_id: 1, color: '#00ff00' };
+  let selectedLayer = null, selectedStyleBackup = null;
 
-    dlog('setBrushActive()', { BRUSH_ACTIVE, pointer: maskCanvas?.style.pointerEvents });
+  const enableEditFor  = (layer) => { try { if (layer?.editing && !layer.editing.enabled()) layer.editing.enable(); } catch {} };
+  const disableEditFor = (layer) => { try { if (layer?.editing && layer.editing.enabled()) layer.editing.disable(); } catch {} };
 
-    const sel = window.POLYCTX?.selectedLayer || null;
-    dlog('current selectedLayer', { hasSel: !!sel });
-
-    const btn = document.getElementById('toggleBrushBtn');
-    btn?.classList.toggle('primary', BRUSH_ACTIVE);
-
-    if (BRUSH_ACTIVE) {
-      if (!sel) {
-        dlog('brush ON but no selected polygon → abort');
-        BRUSH_ACTIVE = false;
-        document.body.classList.remove('tool-brush');
-        btn?.classList.remove('primary');
-        maskCanvas.style.pointerEvents = 'none';
-        cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-        alert('ابتدا یک پولیگان را انتخاب کنید.');
-        return;
-      }
-      maskCanvas.style.pointerEvents = 'auto';           // اوکی؛ با کلاس CSS هم هم‌جهت است
-      Brush.clipPath = buildClipPathFromLayer(sel);
-      dlog('clipPath set (ON)', { hasClip: !!Brush.clipPath });
-      redrawClipOverlay();
-      try { if (sel.editing?.enabled?.()) sel.editing.disable(); } catch { }
-    } else {
-      maskCanvas.style.pointerEvents = 'none';
-      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-      if (sel) { try { if (sel.editing && !sel.editing.enabled()) sel.editing.enable(); } catch { } }
-      dlog('brush OFF, canvas disabled');
-    }
-  }
-
-  // حتماً سراسری کن تا از کنسول هم بتونی تست کنی
-  window.setBrushActive = setBrushActive;
-  document.getElementById('toggleBrushBtn')?.addEventListener('click', () => {
-    dlog('toggleBrushBtn click');
-    setBrushActive(!BRUSH_ACTIVE);
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'b') { e.preventDefault(); setBrushActive(!BRUSH_ACTIVE); }
-    if (e.key === 'Escape') { setBrushActive(false); }
-  });
-
+  // انتخاب پولیگان
   async function onPolygonSelected(layer) {
-    dlog('onPolygonSelected()', { id: layer?._leaflet_id });
-    if (selectedLayer && selectedStyleBackup) { try { selectedLayer.setStyle(selectedStyleBackup); } catch { } }
+    if (selectedLayer && selectedStyleBackup) { try { selectedLayer.setStyle(selectedStyleBackup); } catch {} }
     selectedLayer = layer;
     if (layer?.setStyle) { selectedStyleBackup = { ...layer.options }; layer.setStyle({ color: '#4f46e5', weight: 3 }); }
 
-    setLabelUIFromValue(layer?._props?.label ?? '');
-    const inpClass = document.getElementById('polyClass');
-    const inpColor = document.getElementById('polyColor');
-    if (inpClass) inpClass.value = String(layer?._props?.class_id ?? defaultProps.class_id);
-    if (inpColor) inpColor.value = layer?._props?.color ?? defaultProps.color;
+    fillFormFromLayer(layer);
+    try { map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 18, padding: [20,20] }); } catch {}
+    await onPolygonSelectedForBrush(layer);
 
-    try { map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 18, padding: [20, 20] }); } catch { }
-    await onPolygonSelectedForBrush(layer); // این خودش drawClipOverlay را صدا می‌زند
-
-    if (BRUSH_ACTIVE) {
-      maskCanvas.style.pointerEvents = 'auto';
-      disableEditFor(layer);
-    } else {
-      enableEditFor(layer);
-    }
+    if (BRUSH_ACTIVE) { maskCanvas.style.pointerEvents = 'auto'; disableEditFor(layer); }
+    else { enableEditFor(layer); }
   }
 
   function addLayerWithProps(layer, props) {
@@ -640,32 +637,30 @@ function initDraw() {
     const col = (layer._props.color || '#00ff00').toLowerCase();
     layer.setStyle?.({ color: col, weight: 2 });
     layer.bindTooltip(layerTooltipHtml(layer._props), { sticky: true });
-
     layer.on('click', () => onPolygonSelected(layer));
     layer.on('edit', () => { if (layer === selectedLayer) onPolygonSelectedForBrush(layer); });
-
     drawnItems.addLayer(layer);
   }
 
+  // بارگذاری از سرور
   async function reloadFromServer() {
     drawnItems.clearLayers();
     selectedLayer = null; selectedStyleBackup = null;
-    setLabelUIFromValue('');
     const r = await fetch('/api/polygons', { cache: 'no-store' });
-    const g = r.ok ? await r.json() : null;
-    if (!g) return;
+    if (!r.ok) return;
+    const g = await r.json();
     L.geoJson(g, {
       onEachFeature: (feat, layer) => addLayerWithProps(layer, feat.properties || {}),
-      style: f => ({ color: (f.properties?.color) || '#00ff00', weight: 2 })
+      style: f => ({ color: f.properties?.color || '#00ff00', weight: 2 })
     });
   }
-  reloadFromServer().catch(() => { });
+  reloadFromServer();
 
+  // کنترل رسم
   const drawControl = new L.Control.Draw({
-    draw: {
-      polygon: { shapeOptions: { color: defaultProps.color, weight: 2 } },
-      polyline: false, rectangle: false, circle: false, marker: false, circlemarker: false
-    },
+    draw: { polygon: { shapeOptions: { color: defaultProps.color, weight: 2 } },
+            polyline: false, rectangle: false, circle: false,
+            marker: false, circlemarker: false },
     edit: { featureGroup: drawnItems }
   });
   map.addControl(drawControl);
@@ -676,27 +671,21 @@ function initDraw() {
     onPolygonSelected(layer);
   });
 
+  // --- UI events ---
   document.getElementById('applyPropsBtn')?.addEventListener('click', () => {
     if (!selectedLayer) return alert('ابتدا یک پولیگان را انتخاب کنید.');
-    const label = getSelectedLabelLocal();
-    const class_id = parseInt(document.getElementById('polyClass')?.value || '1', 10);
-    const color = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
-    selectedLayer._props = { ...(selectedLayer._props || {}), label, class_id, color };
-    selectedLayer.setStyle?.({ color, weight: 2 });
-    selectedLayer.getTooltip()?.setContent(layerTooltipHtml(selectedLayer._props));
-  });
-
-  document.getElementById('setDefaultPropsBtn')?.addEventListener('click', () => {
-    defaultProps.label = getSelectedLabelLocal();
-    defaultProps.class_id = parseInt(document.getElementById('polyClass')?.value || '1', 10);
-    defaultProps.color = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
-    alert('پیش‌فرض به‌روزرسانی شد.');
+    readFormToLayer(selectedLayer);
+    alert('Applied to selected polygon.');
   });
 
   document.getElementById('savePolygonsBtn')?.addEventListener('click', async () => {
     const fc = { type: 'FeatureCollection', features: [] };
     drawnItems.eachLayer(layer => {
-      try { const gj = layer.toGeoJSON(); gj.properties = { ...(gj.properties || {}), ...(layer._props || {}) }; fc.features.push(gj); } catch { }
+      try {
+        const gj = layer.toGeoJSON();
+        gj.properties = { ...(gj.properties || {}), ...(layer._props || {}) };
+        fc.features.push(gj);
+      } catch {}
     });
     const r = await fetch('/api/save_polygons', {
       method: 'POST',
@@ -708,46 +697,26 @@ function initDraw() {
   });
 
   document.getElementById('loadPolygonsBtn')?.addEventListener('click', async () => {
-    const inp = document.getElementById('polyUpload'); const file = inp?.files?.[0];
-    if (!file) return alert('فایل .geojson/.json یا .zip را انتخاب کنید.');
+    const file = document.getElementById('polyUpload')?.files?.[0];
+    if (!file) return alert('فایل انتخاب نشده');
     const fd = new FormData(); fd.append('file', file);
     const r = await fetch('/api/polygons/upload', { method: 'POST', body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return alert('خطا: ' + (j.error || 'upload failed'));
-    await reloadFromServer(); alert('پولیگان‌ها بارگذاری شدند.');
+    await reloadFromServer(); alert('بارگذاری شد.');
   });
 
-  function panBy(dx, dy) { map.panBy([dx, dy], { animate: false }); }
-  function savePolys() { document.getElementById('savePolygonsBtn')?.click(); }
-  function toggleHelp() {
-    let el = document.getElementById('hotkeyHelp');
-    if (!el) {
-      el = document.createElement('div'); el.id = 'hotkeyHelp';
-      el.style.cssText = 'position:fixed; right:12px; bottom:12px; z-index:99999; background:rgba(0,0,0,.75); color:#fff; padding:12px; border-radius:8px; max-width:460px; font:12px/1.6 ui-sans-serif,system-ui;';
-      el.innerHTML = `<b>Shortcuts (Polygon)</b><br>Zoom: + / - | Pan: Arrows/WASD<br>P Start • Enter Finish • Esc Cancel • Backspace Del last • E Toggle edit • Ctrl/Cmd+S Save<br>Close: ?`;
-      document.body.appendChild(el);
-    } else el.remove();
-  }
-
+  // کیبورد
   window.addEventListener('keydown', (e) => {
     const tag = (e.target?.tagName || '').toLowerCase();
-    if (['input', 'textarea', 'select'].includes(tag) || e.isComposing) return;
-    const kill = () => { e.preventDefault(); e.stopPropagation(); };
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { kill(); savePolys(); return; }
-    const mult = e.shiftKey ? MULT_ULTRA : (e.altKey ? MULT_FAST : 1);
-    switch (e.key) {
-      case '+': case '=': kill(); zoomBy(+BASE_STEP * mult); break;
-      case '-': kill(); zoomBy(-BASE_STEP * mult); break;
-      case 'ArrowUp': case 'w': case 'W': kill(); panBy(0, -100); break;
-      case 'ArrowDown': case 's': case 'S': kill(); panBy(0, +100); break;
-      case 'ArrowLeft': case 'a': case 'A': kill(); panBy(-100, 0); break;
-      case 'ArrowRight': case 'd': case 'D': kill(); panBy(+100, 0); break;
-      case 'e': case 'E': kill(); if (selectedLayer) { const en = selectedLayer?.editing?.enabled?.(); en ? disableEditFor(selectedLayer) : enableEditFor(selectedLayer); } break;
-      case '?': case 'h': case 'H': kill(); toggleHelp(); break;
+    if (['input','textarea','select'].includes(tag) || e.isComposing) return;
+    if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s') {
+      e.preventDefault(); document.getElementById('savePolygonsBtn')?.click();
     }
   });
 
-  window.POLYCTX = { map, drawnItems, drawControl, get selectedLayer() { return selectedLayer; } };
+  // خروجی جهانی
+  window.POLYCTX = { map, drawnItems, drawControl, get selectedLayer(){ return selectedLayer; } };
 }
 
 // ========== Overlay nudge (meters) ==========

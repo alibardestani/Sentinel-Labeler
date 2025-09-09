@@ -4,11 +4,12 @@
 {% block head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
-<style>
-  .map-wrap {
-    height: calc(100vh - 110px);
-  }
-</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/leaflet-geometryutil"></script>
+<script src="https://unpkg.com/leaflet-snap/leaflet.snap.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<style>.map-wrap{height:calc(100vh - 110px);}</style>
 {% endblock %}
 
 {% block main %}
@@ -22,15 +23,58 @@
 
 {% block right_panel %}
 {{ super() }}
+
+<!-- Polygon Properties -->
+<div class="section">
+  <div class="muted">Polygon Properties</div>
+  <div class="toolbar" style="gap:10px">
+    <label>Fruit Type <input id="polyUsesFruit" type="text" style="width:100%"></label>
+    <label>Code <input id="polyCode" type="text" style="width:100%"></label>
+    <label>Area (m²) <input id="polyAreaM2" type="number" step="0.01" readonly></label>
+    <label>Lat <input id="polyLat" type="number" step="0.000001" readonly></label>
+    <label>Lon <input id="polyLon" type="number" step="0.000001" readonly></label>
+
+    <label>Label
+      <select id="polyLabelSelect">
+        <option value="">—</option>
+        <option value="veg">Vegetation</option>
+        <option value="background">Background</option>
+        <option value="__custom__">Custom…</option>
+      </select>
+      <div id="customLabelWrap" style="display:none; margin-top:6px;">
+        <input id="polyLabelCustom" type="text" placeholder="Custom label">
+      </div>
+    </label>
+
+    <label>Class ID <input id="polyClass" type="number" min="0" step="1" value="1"></label>
+    <label>Color <input id="polyColor" type="color" value="#00ff00"></label>
+
+    <div class="pill" style="gap:8px">
+      <button id="applyPropsBtn" class="btn">Apply</button>
+      <button id="savePolygonsBtn" class="btn primary">Save All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload polygons -->
+<div class="section">
+  <div class="muted">Upload Polygons</div>
+  <div class="toolbar" style="gap:8px">
+    <input type="file" id="polyUpload" accept=".geojson,.json,.zip">
+    <button id="loadPolygonsBtn" class="btn">Upload</button>
+  </div>
+</div>
+
+<!-- Brush tools -->
 <div class="section">
   <div class="muted">Brush</div>
   <div class="toolbar" style="gap:10px; flex-wrap:wrap; align-items:center">
     <label>Size
-      <input id="brushSize" type="range" min="2" max="128" step="1" value="16" />
+      <input id="brushSize" type="range" min="2" max="128" step="1" value="16">
       <span id="brushSizeVal">16 px</span>
     </label>
     <label>Hardness
-      <input id="brushHard" type="range" min="0" max="1" step="0.05" value="1" />
+      <input id="brushHard" type="range" min="0" max="1" step="0.05" value="1">
       <span id="brushHardVal">1.00</span>
     </label>
     <button id="toggleBrushBtn" class="btn">Brush</button>
@@ -38,10 +82,7 @@
       <button id="modeVeg" class="btn primary">Vegetation</button>
       <button id="modeBg" class="btn">Erase</button>
     </div>
-    <label style="display:flex; align-items:center; gap:6px;">
-      <input id="clipToPoly" type="checkbox" checked />
-      Clip to selected polygon
-    </label>
+    <label><input id="clipToPoly" type="checkbox" checked> Clip to selected polygon</label>
     <button id="clearMask" class="btn">Clear</button>
     <button id="saveMaskBtn" class="btn primary">Save</button>
     <span id="maskSaveStatus" class="muted" style="font-size:12px"></span>
@@ -50,9 +91,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
-<script src="https://unpkg.com/leaflet-geometryutil" defer></script>
-<script src="https://unpkg.com/leaflet-snap/leaflet.snap.js" defer></script>
 <script src="{{ url_for('static', filename='js/polygon.js') }}" defer></script>
 {% endblock %}
