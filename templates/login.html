@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — Sentinel Labeler</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+  <style>
+    .login-wrap {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      padding: 24px;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--panel, #111318);
+      border: 1px solid var(--line, #23262e);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+    }
+
+    .login-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .login-brand .logo-wrap {
+      background: #fff;
+      padding: 8px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, .15);
+      display: grid;
+      place-items: center;
+    }
+
+    .login-brand .logo-wrap img {
+      width: 44px;
+      height: 44px;
+      object-fit: contain;
+    }
+
+    .login-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .login-sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .form-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .form-row label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .input {
+      background: var(--panel-2, #171a20);
+      color: var(--text, #e6e9ef);
+      border: 1px solid var(--line, #23262e);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+      width: 100%;
+    }
+
+    .input:focus {
+      border-color: var(--brand, #4f46e5);
+      box-shadow: 0 0 0 2px rgba(79, 70, 229, .2);
+    }
+
+    .pw-wrap {
+      position: relative;
+    }
+
+    .pw-toggle {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .row-inline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 2px;
+    }
+
+    .row-inline label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .row-inline input[type="checkbox"] {
+      accent-color: var(--brand);
+    }
+
+    .btn.primary {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
+    .err {
+      {% if error %}display:block;{% else %}display:none;{% endif %}
+      margin-top: 8px;
+      background: #2a1620;
+      color: #ffb4c4;
+      border: 1px solid #6e2b3f;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .footer-note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo-wrap">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo">
+        </div>
+        <div>
+          <div class="login-title">Sentinel Labeler</div>
+          <div class="login-sub">Sign in to continue</div>
+        </div>
+      </div>
+
+      <form id="loginForm"
+            class="form-grid"
+            method="post"
+            action="{{ url_for('login', next=request.args.get('next', '') ) }}"
+            autocomplete="on">
+        <input type="hidden" name="next" value="{{ request.args.get('next','') }}"/>
+
+        <div class="form-row">
+          <label for="email">Email</label>
+          <input id="email" name="email" class="input" type="email" inputmode="email"
+                 placeholder="you@example.com" required value="demo@example.com" />
+        </div>
+
+        <div class="form-row">
+          <label for="password">Password</label>
+          <div class="pw-wrap">
+            <input id="password" name="password" class="input" type="password"
+                   placeholder="••••••••" required value="demo1234" />
+            <button type="button" class="pw-toggle" aria-label="Show Password">Show</button>
+          </div>
+        </div>
+
+        <div class="row-inline">
+          <label><input id="remember" type="checkbox" /> Remember me</label>
+          <a href="#" class="muted" onclick="alert('Use demo credentials.'); return false;">Forgot?</a>
+        </div>
+
+        <button class="btn primary" type="submit">Sign in</button>
+        <div id="err" class="err">{{ error or '' }}</div>
+
+        <div class="footer-note">Demo: <code>demo@example.com</code> / <code>demo1234</code></div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Toggle password visibility
+    const pw = document.querySelector("#password");
+    const tog = document.querySelector(".pw-toggle");
+    tog?.addEventListener("click", () => {
+      const isPw = pw.type === "password";
+      pw.type = isPw ? "text" : "password";
+      tog.textContent = isPw ? "Hide" : "Show";
+    });
+  </script>
+</body>
+</html>

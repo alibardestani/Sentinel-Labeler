@@ -1,353 +1,146 @@
-:root {
-  --bg: #0b0c0f;
-  --panel: #111318;
-  --panel-2: #171a20;
-  --text: #e6e9ef;
-  --muted: #9aa3b2;
-  --brand: #4f46e5;
-  --line: #23262e;
-  --btn: #1f2330;
-  --btn-h: #2a2f3d;
+:root{
+  --bg:#0b0c0f; --panel:#111318; --panel-2:#171a20; --text:#e6e9ef; --muted:#9aa3b2;
+  --brand:#4f46e5; --line:#23262e; --btn:#1f2330; --btn-h:#2a2f3d;
 }
 
-* {
-  box-sizing: border-box;
+*{ box-sizing:border-box }
+
+html, body{ height:100% }
+body{
+  margin:0;
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial;
+  color:var(--text); background:var(--bg);
 }
 
-html,
-body {
-  height: 100%;
-}
+.app{ display:grid; grid-template-columns:280px 1fr 280px; grid-template-rows:56px 1fr; height:100vh; }
 
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial;
-  color: var(--text);
-  background: var(--bg);
+/* Header */
+header{
+  grid-column:1/4; position:sticky; top:0; z-index:20;
+  display:flex; align-items:center; gap:12px; padding:0 14px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(20,22,28,.95), rgba(20,22,28,.85));
+  backdrop-filter:blur(8px);
 }
+header .brand{ font-weight:700; letter-spacing:.2px; display:flex; align-items:center; gap:8px; font-size:18px; }
+header .spacer{ flex:1 }
+header .brush-controls{ display:flex; gap:10px; align-items:center; }
+header .brush-controls.hidden{ display:none }
 
-.app {
-  display: grid;
-  grid-template-columns: 280px 1fr 280px;
-  grid-template-rows: 56px 1fr;
-  height: 100vh;
+/* inputs / buttons */
+label{ font-size:13px; color:var(--muted) }
+input[type=number], select{
+  background:var(--panel-2); color:var(--text);
+  border:1px solid var(--line); border-radius:10px; padding:6px 8px;
 }
+.btn{
+  padding:8px 12px; border:1px solid var(--line); background:var(--btn);
+  color:var(--text); cursor:pointer; border-radius:12px; transition:.15s ease;
+}
+.btn:hover{ background:var(--btn-h) }
+.btn.primary{ background:var(--brand); border-color:var(--brand); color:#fff }
+.muted{ color:var(--muted); font-size:12px; }
 
-header {
-  grid-column: 1/4;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(20, 22, 28, .95), rgba(20, 22, 28, .85));
-  backdrop-filter: blur(8px);
+aside.left, aside.right{
+  padding:14px; overflow:auto; background:var(--panel); border-inline:1px solid var(--line);
 }
+aside.left{ border-right:1px solid var(--line) }
+aside.right{ border-left:1px solid var(--line) }
+main{ position:relative; background:#0e1016; min-width:0; min-height:0; }
 
-header .brand {
-  font-weight: 700;
-  letter-spacing: .2px;
-}
+.section{ margin-bottom:18px; }
+.toolbar{ display:flex; flex-direction:column; gap:10px; }
+.pill{ display:flex; gap:8px; }
 
-header .spacer {
-  flex: 1;
-}
+/* Map */
+#map{ position:relative; }
+.leaflet-container{ background:#000; }
 
-header .brush-controls {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+/* Canvas shells */
+.canvas-wrap{
+  position:relative; width:100%; height:100%; inset:0; overflow:hidden; box-sizing:border-box;
 }
+canvas{ image-rendering:pixelated; display:block; }
 
-header .brush-controls.hidden {
-  display: none;
-}
+/* Backdrop/Mask place-holders if used elsewhere */
+#backdrop, #mask{ position:absolute; inset:0; }
 
-label {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-input[type=number],
-select {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 6px 8px;
-}
-
-.btn {
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  background: var(--btn);
-  color: var(--text);
-  cursor: pointer;
-  border-radius: 12px;
-  transition: .15s ease;
-}
-
-.btn:hover {
-  background: var(--btn-h);
-}
-
-.muted {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-aside.left,
-aside.right {
-  padding: 14px;
-  overflow: auto;
-  background: var(--panel);
-  border-inline: 1px solid var(--line);
-}
-
-aside.left {
-  border-right: 1px solid var(--line);
-}
-
-aside.right {
-  border-left: 1px solid var(--line);
-}
-
-main {
-  position: relative;
-  background: #0e1016;
-  min-width: 0;
-  min-height: 0;
-}
-
-.section {
-  margin-bottom: 18px;
-}
-
-.toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pill {
-  display: flex;
-  gap: 8px;
-}
-
-#map {
-  position: relative;
-}
-
-.leaflet-container {
-  background: #000;
-}
-
-.canvas-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  inset: 0;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-canvas {
-  image-rendering: pixelated;
-  display: block;
-}
-
-#backdrop,
-#mask {
-  position: absolute;
-  inset: 0;
-}
-
-#backdrop {
-  z-index: 0;
-}
-
-#mask {
-  z-index: 1;
-  touch-action: none;
-  user-select: none;
-  cursor: crosshair;
-}
-
-/* تغییر کرسر بر اساس ابزار انتخابی */
-.tool-pan #mask {
-  cursor: grab;
-}
-
-.tool-zoom #mask {
-  cursor: zoom-in;
-}
-
-.tool-brush #mask {
-  cursor: crosshair;
-}
-
-/* نمایش/مخفی‌سازی عمومی */
-.hidden {
-  display: none;
-}
-
-/* مودال */
-#modal.hidden {
-  display: none;
-}
-
-#modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, .35);
-  z-index: 1000;
-}
-
-.modal-card {
-  background: var(--panel-2, #1d2230);
-  border: 1px solid var(--line, #2a2f3d);
-  padding: 16px;
-  border-radius: 12px;
-  width: 380px;
-  color: var(--text, #e6e9ef);
-}
-
-.progress {
-  margin-top: 14px;
-  height: 8px;
-  background: #202433;
-  border-radius: 12px;
-  overflow: hidden
-}
-
-.progress .bar {
-  height: 100%;
-  background: #4f46e5;
-  width: 0;
-  transition: width .2s ease
-}
-
-/* .main-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  height: calc(100vh - 140px);
-  min-height: 520px;
-} */
-.main-split {
-  display: block; /* دیگه گرید دوتایی نمی‌خوای */
-  height: calc(100vh - 140px);
-  min-height: 520px;
-}
-.map-wrap, .map {
-  width: 100%;
-  height: 100%;
-}
-
-.map {
-  width: 100%;
-  height: 100%;
-}
-
-.mask-editor {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.canvas-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background: #0b0b0b;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-/* سه بوم هم‌پوشان */
-#backdrop,
+/* Drawing interaction */
 #mask{
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  image-rendering: pixelated;
-  touch-action: none;
+  z-index:1; touch-action:none; user-select:none; cursor:crosshair;
 }
+.tool-pan #mask{ cursor:grab; }
+.tool-zoom #mask{ cursor:zoom-in; }
 
-#backdrop {
-  z-index: 1;
+/* Brush canvases (overlayed in the map) */
+#maskCanvas, #cursorCanvas{
+  position:absolute; inset:0; width:100%; height:100%;
+  z-index:800;                  /* زیر کنترل‌های Leaflet */
+  pointer-events:none;          /* پیش‌فرض: کلیک نگیرند */
 }
+/* براش که فعال شد، فقط maskCanvas کلیک بگیرد */
+body.tool-brush #maskCanvas{ pointer-events:auto; }
 
-#mask {
-  z-index: 2;
-}
+/* اگر جای دیگری از JS خواستی maskCanvas را کلیک‌پذیر کنی، با همین کلاس هم‌راسته بماند. */
+#cursorCanvas{ pointer-events:none; }
 
-#maskCanvas,
-#cursorCanvas {
-  position: absolute;
-  inset: 0;
-  z-index: 500; 
-  pointer-events: none;
-}
+/* Stack order for any other layers you had */
+#backdrop{ z-index:600; }
+#mask{ z-index:700; }
 
-#maskCanvas {
-  pointer-events: auto;
-  z-index: 1000;
-  /* بالاتر از overlay/tooltip/popup پن‌های leaflet */
-}
+/* Leaflet controls above canvases, no transform tricks */
+.leaflet-top, .leaflet-bottom, .leaflet-control-container{ z-index:1200; }
+#map .leaflet-control-container{ transform:none !important; }
 
-#cursorCanvas {
-  pointer-events: none;
-  z-index: 1001;
+/* Compact & centered controls (no padding shifts) */
+.leaflet-bar a, .leaflet-bar a:hover{
+  display:block; width:26px; height:26px; line-height:26px;
+  padding:0; border-radius:0; box-shadow:none; box-sizing:content-box;
 }
+.leaflet-draw-toolbar a{
+  width:26px !important; height:26px !important; line-height:26px !important;
+  padding:0 !important; border-radius:0 !important;
+  background:#fff; border:1px solid #cfd6e4;
+}
+.leaflet-draw-toolbar a:hover{ background:#f3f4f6; }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 18px;
+/* Modals */
+.hidden{ display:none; }
+#modal.hidden{ display:none; }
+#modal{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.35); z-index:1000;
 }
+.modal-card{
+  background:var(--panel-2,#1d2230); border:1px solid var(--line,#2a2f3d);
+  padding:16px; border-radius:12px; width:380px; color:var(--text,#e6e9ef);
+}
+.progress{ margin-top:14px; height:8px; background:#202433; border-radius:12px; overflow:hidden }
+.progress .bar{ height:100%; background:#4f46e5; width:0; transition:width .2s ease }
 
-.logo-wrap {
-  background: #fff;
-  padding: 6px;        /* کمی فاصله بیشتر */
-  border-radius: 8px;  /* گوشه‌ها کمی گردتر */
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Brand + Logo */
+.brand{ display:flex; align-items:center; gap:8px; font-weight:600; font-size:18px; }
+.logo-wrap{
+  background:#fff; padding:6px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.15);
+  display:flex; align-items:center; justify-content:center;
 }
+.logo-wrap img{ width:40px; height:40px; object-fit:contain; }
 
-.logo-wrap img {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-}
-
-/* اندازه‌ی دکمه‌ها کوچیک‌تر، بدون ترنسفورم */
-.leaflet-bar a,
-.leaflet-bar a:hover {
-  width: 26px;
-  height: 26px;
-  line-height: 26px;
-}
-
-.leaflet-draw-toolbar a {
-  width: 26px !important;
-  height: 26px !important;
-  line-height: 26px !important;
-  background-color: #fff;         /* برای دیده‌شدن آیکن‌ها */
-  border: 1px solid #cfd6e4;
-}
-
-.leaflet-draw-toolbar a:hover {
-  background-color: #f3f4f6;
-}
+/* (Optional) Login helpers if you prefer in app.css */
+.login-wrap { min-height:100vh; display:grid; place-items:center; background:var(--bg); padding:24px; }
+.login-card { width:100%; max-width:420px; background:var(--panel,#111318); border:1px solid var(--line,#23262e); border-radius:14px; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.25); }
+.login-brand { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.login-brand .logo-wrap { background:#fff; padding:8px; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.15); display:grid; place-items:center; }
+.login-brand .logo-wrap img { width:44px; height:44px; object-fit:contain; }
+.login-title { font-size:18px; font-weight:700; letter-spacing:.2px; }
+.login-sub { color:var(--muted); font-size:12px; margin-top:2px; }
+.form-grid { display:grid; gap:10px; margin-top:12px; }
+.form-row { display:grid; gap:6px; }
+.input { background:var(--panel-2,#171a20); color:var(--text,#e6e9ef); border:1px solid var(--line,#23262e); border-radius:10px; padding:10px 12px; outline:none; width:100%; }
+.input:focus { border-color:var(--brand,#4f46e5); box-shadow:0 0 0 2px rgba(79,70,229,.2); }
+.pw-wrap { position:relative; }
+.pw-toggle { position:absolute; top:50%; right:10px; transform:translateY(-50%); background:transparent; color:var(--muted); border:none; cursor:pointer; font-size:12px; }
+.row-inline { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:2px; }
+.err { display:none; margin-top:8px; background:#2a1620; color:#ffb4c4; border:1px solid #6e2b3f; padding:8px 10px; border-radius:10px; font-size:12px; }
+.err.show { display:block; }
+.footer-note { margin-top:12px; color:var(--muted); font-size:12px; text-align:center; }

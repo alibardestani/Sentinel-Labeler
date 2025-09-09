@@ -512,7 +512,7 @@ async function doSaveMask() {
   }
 }
 
-(function wireBrushButton(){
+(function wireBrushButton() {
   const btn = document.getElementById('toggleBrushBtn');
   dlog('wireBrushButton()', { btnExists: !!btn });
   if (!btn) return;
@@ -566,9 +566,10 @@ function initDraw() {
 
   function setBrushActive(on) {
     BRUSH_ACTIVE = !!on;
+    document.body.classList.toggle('tool-brush', BRUSH_ACTIVE); // برای CSS
+
     dlog('setBrushActive()', { BRUSH_ACTIVE, pointer: maskCanvas?.style.pointerEvents });
 
-    // selectedLayer را از window.POLYCTX بگیر تا همیشه یکسان باشد
     const sel = window.POLYCTX?.selectedLayer || null;
     dlog('current selectedLayer', { hasSel: !!sel });
 
@@ -579,13 +580,14 @@ function initDraw() {
       if (!sel) {
         dlog('brush ON but no selected polygon → abort');
         BRUSH_ACTIVE = false;
+        document.body.classList.remove('tool-brush');
         btn?.classList.remove('primary');
         maskCanvas.style.pointerEvents = 'none';
         cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
         alert('ابتدا یک پولیگان را انتخاب کنید.');
         return;
       }
-      maskCanvas.style.pointerEvents = 'auto';
+      maskCanvas.style.pointerEvents = 'auto';           // اوکی؛ با کلاس CSS هم هم‌جهت است
       Brush.clipPath = buildClipPathFromLayer(sel);
       dlog('clipPath set (ON)', { hasClip: !!Brush.clipPath });
       redrawClipOverlay();
