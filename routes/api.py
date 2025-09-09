@@ -330,3 +330,19 @@ def api_output(fname):
     if not p.exists():
         abort(404)
     return send_from_directory(base, fname)
+
+@api_bp.route("/save_mask", methods=["POST"], endpoint="save_mask_legacy")
+def save_mask_legacy():
+    raw = request.get_data()
+    w, h = backdrop_meta()
+    ok, msg = save_mask_bytes(raw, w, h)
+    if not ok:
+        return jsonify({"error": msg}), 400
+    return jsonify({"ok": True})
+
+@api_bp.get("/mask")
+def api_get_mask():
+    p = settings.MASK_PNG
+    if not p.exists():
+        return ("", 204)
+    return send_from_directory(p.parent, p.name, conditional=True)

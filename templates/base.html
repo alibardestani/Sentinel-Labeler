@@ -1,80 +1,318 @@
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="en" dir="ltr">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}Sentinel Labeler{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css" />
+  <style>
+    :root {
+      --brand: #4f46e5;
+      --bg: #0f1420;
+      --pane: #141a28;
+      --text: #e7ecf3;
+      --muted: #9aa3b2;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.6 ui-sans-serif, system-ui, Segoe UI, Roboto
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none
+    }
+
+    .btn {
+      background: #1b2233;
+      border: 1px solid #20283b;
+      border-radius: 10px;
+      padding: 8px 10px;
+      cursor: pointer;
+      color: var(--text)
+    }
+
+    .btn.primary {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff
+    }
+
+    .btn:disabled {
+      opacity: .6;
+      cursor: not-allowed
+    }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #101728;
+      border: 1px solid #1e2639;
+      border-radius: 999px;
+      padding: 6px 10px
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #1c2435;
+      background: #0d1320;
+      position: sticky;
+      top: 0;
+      z-index: 20
+    }
+
+    header .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700
+    }
+
+    header .brand img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+      border-radius: 6px
+    }
+
+    header .spacer {
+      flex: 1
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .hidden {
+      display: none
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 220px 1fr 260px;
+      gap: 10px;
+      min-height: 100vh;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "header header header"
+        "left   main   right";
+    }
+
+    header {
+      grid-area: header
+    }
+
+    aside.left {
+      grid-area: left;
+      padding: 12px
+    }
+
+    aside.right {
+      grid-area: right;
+      padding: 12px
+    }
+
+    main {
+      grid-area: main;
+      padding: 10px;
+      padding-right: 0
+    }
+
+    aside.left,
+    .right {
+      background: var(--pane);
+      border-radius: var(--radius);
+      border: 1px solid #1c2435
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px
+    }
+
+    .section .toolbar .btn {
+      padding: 6px 9px
+    }
+
+    .brush-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px
+    }
+
+    .brush-controls input[type="number"],
+    .brush-controls select {
+      height: 32px;
+      background: #0f1626;
+      border: 1px solid #23304a;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0 8px
+    }
+
+    /* Map area larger */
+    .map-wrap {
+      height: calc(100vh - 110px)
+    }
+
+    #map {
+      position: relative;
+      height: 100%;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid #1c2435
+    }
+
+    #maskCanvas,
+    #cursorCanvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none
+    }
+
+    /* Modal */
+    #modal,
+    #progressModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50
+    }
+
+    #modal.show,
+    #progressModal.show {
+      display: flex
+    }
+
+    .modal-card {
+      background: #0f1524;
+      border: 1px solid #1f2840;
+      border-radius: 14px;
+      padding: 16px
+    }
+
+    .modal-title {
+      font-weight: 600;
+      margin-bottom: 10px
+    }
+
+    /* Compact right panel controls */
+    input[type="range"] {
+      accent-color: var(--brand)
+    }
+
+    code {
+      background: #0f1626;
+      border: 1px solid #23304a;
+      border-radius: 6px;
+      padding: 0 6px
+    }
+  </style>
   {% block head %}{% endblock %}
 </head>
 
 <body>
   <div class="app">
-    <!-- Header -->
     <header>
-      <div class="brand">Sentinel Labeler</div>
+      <div class="brand">
+        <div class="logo-wrap">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo">
+        </div>
+        <div>Sentinel Labeler</div>
+      </div>
       <div class="spacer"></div>
 
-      <!-- Brush controls: فقط در صفحهٔ ماسک نشان داده می‌شود -->
       <div class="brush-controls {% block mask_controls_class %}hidden{% endblock %}">
         <div class="pill">
-          <label for="brushSize">اندازه قلم</label>
+          <label for="brushSize">Size</label>
           <input id="brushSize" type="number" min="1" max="256" value="{{ brush_size|default(16) }}" />
         </div>
         <div class="pill">
-          <label for="brushShape">شکل قلم</label>
+          <label for="brushShape">Shape</label>
           <select id="brushShape">
-            <option value="circle" {% if brush_shape=='circle' %}selected{% endif %}>دایره</option>
-            <option value="square" {% if brush_shape=='square' %}selected{% endif %}>مربع</option>
+            <option value="circle" {% if brush_shape=='circle' %}selected{% endif %}>Circle</option>
+            <option value="square" {% if brush_shape=='square' %}selected{% endif %}>Square</option>
           </select>
         </div>
-        <button class="btn" id="saveMaskBtn">ذخیره ماسک</button>
+        <button class="btn" id="saveMaskBtn">Save Mask</button>
       </div>
     </header>
 
-    <!-- Left Sidebar -->
     <aside class="left">
       <div class="section">
-        <div class="muted">صفحه‌ها</div>
+        <div class="muted">Pages</div>
         <div class="toolbar">
-          <a class="btn" href="/polygon">لیبل‌زنی پولیگان</a>
-          <a class="btn" href="/mask">اصلاح ماسک</a>
+          <a class="btn" href="/polygon">Polygon</a>
+          <a class="btn" href="/mask">Mask</a>
         </div>
       </div>
 
       <div class="section">
-        <div class="muted">Pre-label</div>
+        <div class="muted">Prelabel</div>
         <div class="toolbar">
-          <button class="btn" onclick="openPrelabel()">انتخاب روش Pre-label</button>
-          <div class="muted" style="font-size:12px">نتیجه به صورت نیمه‌شفاف روی تصویر نشان داده می‌شود.</div>
+          <button class="btn" onclick="openPrelabel()">Choose method</button>
+          <div class="muted" style="font-size:12px">Result overlays the image.</div>
         </div>
       </div>
 
       <div class="section">
-        <div class="muted">جایگزینی صحنهٔ Sentinel (ZIP)</div>
+        <div class="muted">Replace Sentinel Scene (ZIP)</div>
         <div class="toolbar" style="gap:8px">
           <input type="file" id="s2Zip" accept=".zip" />
-          <button class="btn" id="uploadS2ZipBtn">آپلود ZIP</button>
+          <button class="btn" id="uploadS2ZipBtn">Upload ZIP</button>
         </div>
         <div class="muted" style="font-size:12px">
-          نام فایل‌ها معمولاً مثل <code>S2C_MSIL2A_YYYYMMDDThhmmss_... .SAFE.zip</code> است.
+          Typical file name like <code>S2C_MSIL2A_YYYYMMDDThhmmss_... .SAFE.zip</code>
         </div>
       </div>
 
       {% block left_extra %}{% endblock %}
     </aside>
 
-    <!-- Main -->
     <main>
-      {% block main %}{% endblock %}
+      {% block main %}
+      <div class="map-wrap">
+        <div id="map" class="map">
+          <canvas id="maskCanvas"></canvas>
+          <canvas id="cursorCanvas"></canvas>
+        </div>
+      </div>
+      {% endblock %}
     </main>
 
-    <!-- Right Sidebar -->
     <aside class="right">
       {% block right_panel %}{% endblock %}
 
       <div class="section">
-        <div class="muted">شفافیت تصویر Sentinel</div>
+        <div class="muted">Sentinel Opacity</div>
         <div class="toolbar" style="align-items:center; gap:8px">
           <input id="overlayOpacity" type="range" min="0" max="100" value="60" />
           <span id="opacityValue">0.60</span>
@@ -82,74 +320,98 @@
       </div>
 
       <div class="section">
-        <div class="muted">مدل</div>
+        <div class="muted">Model</div>
         <div class="toolbar" style="gap:8px">
           <input type="file" id="modelFile" accept=".onnx" />
-          <button class="btn" id="uploadModelBtn">بارگذاری مدل</button>
-          <button class="btn" id="runModelBtn">اجرای مدل</button>
+          <button class="btn" id="uploadModelBtn">Upload</button>
+          <button class="btn" id="runModelBtn">Run</button>
         </div>
         <div class="muted" id="modelInfo" style="font-size:12px; margin-top:6px;"></div>
       </div>
     </aside>
   </div>
 
-  <!-- Prelabel Modal -->
-  <div id="modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="prelabelTitle">
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="prelabelTitle">
     <div class="modal-card">
-      <div class="modal-title" id="prelabelTitle">انتخاب روش Pre-label</div>
+      <div class="modal-title" id="prelabelTitle">Prelabel Method</div>
       <div class="toolbar" style="gap:8px; flex-wrap:wrap">
-        <select id="prelabelMethod" aria-label="روش پیش‌برچسب‌گذاری">
-          <option value="kmeans_rgb">KMeans روی RGB (۲ کلاس)</option>
-          <option value="otsu_gray">آستانه‌گذاری Otsu (خاکستری)</option>
-          <option value="ndvi_otsu">NDVI (آستانه خودکار با Otsu)</option>
-          <option value="ndvi_thresh">NDVI (آستانه ثابت)</option>
+        <select id="prelabelMethod" aria-label="Prelabel Method">
+          <option value="kmeans_rgb">KMeans on RGB (2 classes)</option>
+          <option value="otsu_gray">Otsu (grayscale)</option>
+          <option value="ndvi_otsu">NDVI (auto Otsu)</option>
+          <option value="ndvi_thresh">NDVI (fixed threshold)</option>
         </select>
 
         <div id="ndviThreshWrap" class="pill" style="display:none; gap:8px;">
-          <label for="ndviThreshold">NDVI threshold</label>
+          <label for="ndviThreshold">NDVI</label>
           <input id="ndviThreshold" type="number" step="0.01" value="0.2" />
         </div>
 
         <div class="pill" style="gap:8px;">
-          <button class="btn primary" id="prelabelRunBtn" onclick="runPrelabel()">اجرا</button>
-          <button class="btn" id="prelabelCloseBtn" onclick="closePrelabel()">بستن</button>
+          <button class="btn primary" id="prelabelRunBtn" onclick="runPrelabel()">Run</button>
+          <button class="btn" id="prelabelCloseBtn" onclick="closePrelabel()">Close</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Progress Modal -->
-  <div id="progressModal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
-    <div class="modal-card" style="min-width:380px">
-      <div class="modal-title" id="progressTitle" style="margin-bottom:12px; font-weight:600;">در حال پردازش… (0%)</div>
+  <div id="progressModal" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
+    <div class="modal-card" style="min-width:360px">
+      <div class="modal-title" id="progressTitle" style="margin-bottom:10px; font-weight:600;">Processing… (0%)</div>
       <div class="progress" style="height:10px; background:#222833; border-radius:999px; overflow:hidden;">
-        <div class="bar" style="width:0%; height:100%; background:var(--brand,#4f46e5); transition:width .25s;"></div>
+        <div class="bar" style="width:0%; height:100%; background:var(--brand); transition:width .25s;"></div>
       </div>
-      <div class="muted" style="margin-top:10px; font-size:12px; color:var(--muted,#9aa3b2);">
-        لطفاً صبر کنید. پردازش بسته به اندازه صحنه ممکن است کمی طول بکشد.
+      <div class="muted" style="margin-top:10px; font-size:12px;">
+        Please wait. Large scenes may take a bit.
       </div>
     </div>
   </div>
 
-  <!-- Scripts (مشترک + اختصاصی صفحه) -->
   <script src="{{ url_for('static', filename='js/common.js') }}"></script>
   {% block scripts %}{% endblock %}
 
-  <!-- Fixed Help (toggled by '?') -->
-  <div id="fixedHotkeyHelp"
-       style="position:fixed; right:12px; bottom:12px; z-index:99990;
-              background:rgba(0,0,0,.7); color:#fff; padding:10px 12px;
-              border-radius:8px; font:12px/1.5 ui-sans-serif,system-ui; max-width:420px;">
+  <div id="fixedHotkeyHelp" style="position:fixed; right:12px; bottom:12px; z-index:99990;
+            background:rgba(0,0,0,.7); color:#fff; padding:10px 12px;
+            border-radius:8px; font:12px/1.5 ui-sans-serif,system-ui; max-width:420px;
+            box-shadow:0 8px 24px rgba(0,0,0,.35);">
+    <button id="fixedHotkeyClose" aria-label="Close" title="Close" style="position:absolute; top:6px; left:390px; width:24px; height:24px;
+                 border:none; border-radius:6px; background:transparent; color:#fff;
+                 cursor:pointer; font-size:16px; line-height:1;">×</button>
+
     <b>Shortcuts</b>
     <div style="margin-top:6px; opacity:.9">
-      <div><u>Mask</u>: B Brush • V Pan • Z Zoom • 0/1/2 Class • [ ] Brush size • +/− Zoom • Arrows/WASD Pan • Ctrl/Cmd+S Save • Ctrl/Cmd+Z/Y Undo/Redo • Hold Space = Pan</div>
-      <div style="margin-top:4px;"><u>Polygon</u>: +/− Zoom • Arrows/WASD Pan • P Start polygon • Enter Finish • Esc Cancel • Backspace Delete last vertex • E Edit • Ctrl/Cmd+S Save</div>
-      <div style="margin-top:4px;opacity:.8">Press <b>?</b> to show/hide this panel.</div>
+      <div><u>Mask</u>: B Brush • V Pan • Z Zoom • [ ] Size • +/− Zoom • Arrows/WASD Pan • Ctrl/Cmd+S Save •
+        Ctrl/Cmd+Z/Y Undo/Redo • Space=Pan</div>
+      <div style="margin-top:4px;"><u>Polygon</u>: +/− Zoom • Arrows/WASD Pan • P Start • Enter Finish • Esc Cancel •
+        Backspace Delete last • E Edit • Ctrl/Cmd+S Save</div>
+      <div style="margin-top:4px;opacity:.8">Press <b>?</b> to toggle.</div>
     </div>
   </div>
 
   <script>
-    // toggle fixed panel with '?' or 'h'
+    // toggle with '?' or 'h'
+    window.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isComposing) return;
+      if (e.key === '?' || e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        const box = document.getElementById('fixedHotkeyHelp');
+        if (!box) return;
+        const vis = getComputedStyle(box).display !== 'none';
+        box.style.display = vis ? 'none' : 'block';
+      }
+    });
+
+    // close button (×)
+    document.getElementById('fixedHotkeyClose')?.addEventListener('click', () => {
+      const box = document.getElementById('fixedHotkeyHelp');
+      if (box) box.style.display = 'none';
+    });
+  </script>
+
+  <script>
+    function openPrelabel() { document.getElementById('modal').classList.add('show'); }
+    function closePrelabel() { document.getElementById('modal').classList.remove('show'); }
     window.addEventListener('keydown', (e) => {
       const tag = (e.target && e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isComposing) return;
@@ -163,4 +425,5 @@
     });
   </script>
 </body>
+
 </html>

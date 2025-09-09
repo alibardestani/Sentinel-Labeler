@@ -1,20 +1,21 @@
 :root {
-  --bg:#0b0c0f;
-  --panel:#111318;
-  --panel-2:#171a20;
-  --text:#e6e9ef;
-  --muted:#9aa3b2;
-  --brand:#4f46e5;
-  --line:#23262e;
-  --btn:#1f2330;
-  --btn-h:#2a2f3d;
+  --bg: #0b0c0f;
+  --panel: #111318;
+  --panel-2: #171a20;
+  --text: #e6e9ef;
+  --muted: #9aa3b2;
+  --brand: #4f46e5;
+  --line: #23262e;
+  --btn: #1f2330;
+  --btn-h: #2a2f3d;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
 }
 
@@ -42,7 +43,7 @@ header {
   gap: 12px;
   padding: 0 14px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(20,22,28,.95), rgba(20,22,28,.85));
+  background: linear-gradient(180deg, rgba(20, 22, 28, .95), rgba(20, 22, 28, .85));
   backdrop-filter: blur(8px);
 }
 
@@ -70,7 +71,8 @@ label {
   color: var(--muted);
 }
 
-input[type=number], select {
+input[type=number],
+select {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--line);
@@ -97,7 +99,8 @@ input[type=number], select {
   font-size: 12px;
 }
 
-aside.left, aside.right {
+aside.left,
+aside.right {
   padding: 14px;
   overflow: auto;
   background: var(--panel);
@@ -135,8 +138,7 @@ main {
 }
 
 #map {
-  width: 100%;
-  height: 100%;
+  position: relative;
 }
 
 .leaflet-container {
@@ -157,12 +159,16 @@ canvas {
   display: block;
 }
 
-#backdrop, #mask {
+#backdrop,
+#mask {
   position: absolute;
   inset: 0;
 }
 
-#backdrop { z-index: 0; }
+#backdrop {
+  z-index: 0;
+}
+
 #mask {
   z-index: 1;
   touch-action: none;
@@ -171,26 +177,38 @@ canvas {
 }
 
 /* تغییر کرسر بر اساس ابزار انتخابی */
-.tool-pan   #mask { cursor: grab; }
-.tool-zoom  #mask { cursor: zoom-in; }
-.tool-brush #mask { cursor: crosshair; }
+.tool-pan #mask {
+  cursor: grab;
+}
+
+.tool-zoom #mask {
+  cursor: zoom-in;
+}
+
+.tool-brush #mask {
+  cursor: crosshair;
+}
 
 /* نمایش/مخفی‌سازی عمومی */
-.hidden { display: none; }
+.hidden {
+  display: none;
+}
 
 /* مودال */
-#modal.hidden { display: none; }
+#modal.hidden {
+  display: none;
+}
+
 #modal {
   position: fixed;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,.35);
+  background: rgba(0, 0, 0, .35);
   z-index: 1000;
 }
 
-/* کارت داخل مودال */
 .modal-card {
   background: var(--panel-2, #1d2230);
   border: 1px solid var(--line, #2a2f3d);
@@ -200,5 +218,136 @@ canvas {
   color: var(--text, #e6e9ef);
 }
 
-.progress{margin-top:14px; height:8px; background:#202433; border-radius:12px; overflow:hidden}
-.progress .bar{height:100%; background:#4f46e5; width:0; transition: width .2s ease}
+.progress {
+  margin-top: 14px;
+  height: 8px;
+  background: #202433;
+  border-radius: 12px;
+  overflow: hidden
+}
+
+.progress .bar {
+  height: 100%;
+  background: #4f46e5;
+  width: 0;
+  transition: width .2s ease
+}
+
+/* .main-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  height: calc(100vh - 140px);
+  min-height: 520px;
+} */
+.main-split {
+  display: block; /* دیگه گرید دوتایی نمی‌خوای */
+  height: calc(100vh - 140px);
+  min-height: 520px;
+}
+.map-wrap, .map {
+  width: 100%;
+  height: 100%;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
+}
+
+.mask-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #0b0b0b;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* سه بوم هم‌پوشان */
+#backdrop,
+#mask{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+#backdrop {
+  z-index: 1;
+}
+
+#mask {
+  z-index: 2;
+}
+
+#maskCanvas,
+#cursorCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 500; 
+  pointer-events: none;
+}
+
+#maskCanvas {
+  pointer-events: auto;
+  z-index: 1000;
+  /* بالاتر از overlay/tooltip/popup پن‌های leaflet */
+}
+
+#cursorCanvas {
+  pointer-events: none;
+  z-index: 1001;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.logo-wrap {
+  background: #fff;
+  padding: 6px;        /* کمی فاصله بیشتر */
+  border-radius: 8px;  /* گوشه‌ها کمی گردتر */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-wrap img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+/* اندازه‌ی دکمه‌ها کوچیک‌تر، بدون ترنسفورم */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
+}
+
+.leaflet-draw-toolbar a {
+  width: 26px !important;
+  height: 26px !important;
+  line-height: 26px !important;
+  background-color: #fff;         /* برای دیده‌شدن آیکن‌ها */
+  border: 1px solid #cfd6e4;
+}
+
+.leaflet-draw-toolbar a:hover {
+  background-color: #f3f4f6;
+}

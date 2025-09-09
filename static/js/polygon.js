@@ -1,187 +1,664 @@
 // static/js/polygon.js
 // ==================================
-// Polygon labeling – clean + robust
+// Polygon labeling + mask editor
 // ==================================
 
-// ---- Base map + Esri imagery ----
-const map = L.map('map', {
-  zoomSnap: 1,      
-  zoomDelta: 1,
-  keyboard: false, 
-});
+const DBG = true;
+const dlog = (...a) => DBG && console.debug('[BRUSH]', ...a);
+const derr = (...a) => DBG && console.error('[BRUSH]', ...a);
+
+// ========== Diagnostics ==========
+window.addEventListener('error', (e) => console.error('JS error:', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => console.error('Promise rejection:', e.reason));
+
+// ========== Config ==========
+const BASE_STEP = 1;
+const MULT_FAST = 5;
+const MULT_ULTRA = 10;
+let BRUSH_ACTIVE = false;
+
+
+// ========== Map + ESRI base ==========
+const map = L.map('map', { zoomSnap: 1, zoomDelta: 1, keyboard: false });
 
 function zoomBy(levels) {
-  const z = map.getZoom();
-  map.setZoom(z + levels, { animate: true });
+  map.setZoom(map.getZoom() + levels, { animate: true });
 }
-
-const BASE_STEP   = 1; 
-const MULT_FAST   = 5;  
-const MULT_ULTRA  = 10;
 
 L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   { attribution: 'Esri' }
 ).addTo(map);
 
-// ---- Overlay opacity controls ----
+// ========== Overlay (Sentinel quicklook) ==========
 let overlay = null;
 const slider = document.getElementById('overlayOpacity');
-const lbl    = document.getElementById('opacityValue');
+const lbl = document.getElementById('opacityValue');
 
 function applyOpacityFromSlider() {
   if (!overlay || !slider) return;
   const v = (parseInt(slider.value, 10) || 0) / 100;
   overlay.setOpacity(v);
-  if (lbl) lbl.textContent = v.toFixed(2);
+  lbl && (lbl.textContent = v.toFixed(2));
 }
-if (slider) slider.addEventListener('input', applyOpacityFromSlider);
+slider?.addEventListener('input', applyOpacityFromSlider);
 
-/* --------------------------------------------
-   Label UI helpers (matches template dropdown)
----------------------------------------------*/
+// ========== Label UI helpers ==========
 function getSelectedLabelLocal() {
-  if (typeof window.getSelectedLabel === 'function') {
-    return window.getSelectedLabel();
-  }
-  const sel    = document.getElementById('polyLabelSelect');
+  if (typeof window.getSelectedLabel === 'function') return window.getSelectedLabel();
+  const sel = document.getElementById('polyLabelSelect');
   const custom = document.getElementById('polyLabelCustom');
   if (!sel) return '';
   const val = sel.value;
-  if (val === '__custom__') return (custom?.value || '').trim();
-  return val || '';
+  return (val === '__custom__') ? (custom?.value || '').trim() : val;
+}
+function setLabelUIFromValue(val) {
+  const sel = document.getElementById('polyLabelSelect');
+  const customWrap = document.getElementById('customLabelWrap');
+  const inp = document.getElementById('polyLabelCustom');
+  if (!sel || !customWrap || !inp) return;
+  const opts = Array.from(sel.options).map(o => o.value);
+  if (val && opts.includes(val)) { sel.value = val; customWrap.style.display = 'none'; inp.value = ''; }
+  else if (val && val !== '') { sel.value = '__custom__'; customWrap.style.display = 'block'; inp.value = val; }
+  else { sel.value = ''; customWrap.style.display = 'none'; inp.value = ''; }
 }
 
-function setLabelUIFromValue(val) {
-  const sel        = document.getElementById('polyLabelSelect');
-  const customWrap = document.getElementById('customLabelWrap');
-  const inp        = document.getElementById('polyLabelCustom');
-  if (!sel || !customWrap || !inp) return;
+// ========== Scene meta (bounds + backdrop size) ==========
+let SCENE_BOUNDS = null;   // {lat_min, lat_max, lon_min, lon_max}
+let BACKDROP_SIZE = null;  // [W, H]
 
-  const opts = Array.from(sel.options).map(o => o.value);
-  if (val && opts.includes(val)) {
-    sel.value = val;
-    customWrap.style.display = 'none';
-    inp.value = '';
-  } else if (val && val !== '') {
-    sel.value = '__custom__';
-    customWrap.style.display = 'block';
-    inp.value = val;
+async function fetchSceneMetaIfNeeded() {
+  if (!SCENE_BOUNDS) {
+    const r = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
+    if (r.ok) SCENE_BOUNDS = await r.json();
+  }
+  if (!BACKDROP_SIZE) {
+    const im = new Image();
+    await new Promise(res => { im.onload = res; im.src = '/api/output/rgb_quicklook.png?t=' + Date.now(); });
+    BACKDROP_SIZE = [im.naturalWidth, im.naturalHeight];
+  }
+}
+function latlngToImgPx(lat, lon) {
+  if (!SCENE_BOUNDS || !BACKDROP_SIZE) return null;
+  const [W, H] = BACKDROP_SIZE;
+  const { lat_min, lat_max, lon_min, lon_max } = SCENE_BOUNDS;
+  const x = ((lon - lon_min) / (lon_max - lon_min)) * W;
+  const y = (1 - (lat - lat_min) / (lat_max - lat_min)) * H;
+  return [x, y];
+}
+
+const backdropCanvas = document.getElementById('backdrop');
+// ========== Mask editor (canvases) ==========
+const maskCanvas = document.getElementById('maskCanvas');
+const cursorCanvas = document.getElementById('cursorCanvas');
+const maskCtx = maskCanvas.getContext('2d');
+const cursorCtx = cursorCanvas.getContext('2d');
+const DPR = Math.max(1, window.devicePixelRatio || 1);
+
+L.DomEvent.disableClickPropagation(maskCanvas);
+L.DomEvent.disableScrollPropagation(maskCanvas);
+
+function resizeCanvasToMap() {
+  const size = map.getSize();               // {x, y} in CSS px
+  [maskCanvas, cursorCanvas].forEach(cnv => {
+    // سایز رندر (پیکسلی واقعی)
+    cnv.width = Math.round(size.x * DPR);
+    cnv.height = Math.round(size.y * DPR);
+    // سایز CSS
+    cnv.style.width = size.x + 'px';
+    cnv.style.height = size.y + 'px';
+    // اصلاح ماتریس برای قلم sharp
+    const ctx = cnv.getContext('2d');
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, cnv.width, cnv.height);
+  });
+  dlog('resizeCanvasToMap()', {
+    mapSize: map.getSize(),
+    maskSize: { w: maskCanvas.width, h: maskCanvas.height, cssW: maskCanvas.style.width, cssH: maskCanvas.style.height },
+    cursorSize: { w: cursorCanvas.width, h: cursorCanvas.height }
+  });
+}
+
+map.on('load zoom move resize', () => {
+  resizeCanvasToMap();
+  const sel = window.POLYCTX?.selectedLayer;
+  dlog('map event', { BRUSH_ACTIVE, hasSel: !!sel });
+
+  if (sel && BRUSH_ACTIVE) {
+    maskCanvas.style.pointerEvents = 'auto';
+    Brush.clipPath = buildClipPathFromLayer(sel);
+    redrawClipOverlay();
   } else {
-    sel.value = '';
-    customWrap.style.display = 'none';
-    inp.value = '';
+    maskCanvas.style.pointerEvents = 'none';
+    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+  }
+});
+setTimeout(resizeCanvasToMap, 0);
+
+function sizeCanvasToParent(cnv) {
+  if (!cnv) return;
+  const rect = cnv.parentElement.getBoundingClientRect();
+  const cssW = Math.max(1, Math.floor(rect.width));
+  const cssH = Math.max(1, Math.floor(rect.height));
+  cnv.width = Math.floor(cssW * DPR);
+  cnv.height = Math.floor(cssH * DPR);
+  cnv.style.width = cssW + 'px';
+  cnv.style.height = cssH + 'px';
+  cnv.getContext('2d').setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+function resizeAll() {
+  [backdropCanvas, maskCanvas, cursorCanvas].forEach(sizeCanvasToParent);
+  drawBackdrop();
+  try { map.invalidateSize(false); } catch { }
+}
+window.addEventListener('resize', resizeAll);
+
+// بک‌دراپ
+const backdropImg = new Image();
+backdropImg.onload = drawBackdrop;
+backdropImg.onerror = (e) => console.warn('Backdrop load failed', e);
+backdropImg.src = '/api/output/rgb_quicklook.png?t=' + Date.now();
+
+function drawBackdrop() {
+  if (!backdropCanvas) return;
+  const ctx = backdropCanvas.getContext('2d');
+  const w = backdropCanvas.width / DPR, h = backdropCanvas.height / DPR;
+  ctx.clearRect(0, 0, w, h);
+  if (backdropImg.naturalWidth && w > 0 && h > 0) {
+    ctx.drawImage(backdropImg, 0, 0, w, h);
   }
 }
 
-/* ======================
-   Draw / Edit / Snap ...
-====================== */
-function initDraw(map) {
+// ========== Brush state ==========
+const Brush = { size: 16, hard: 1, mode: 'veg', clipPath: null };
+
+function setBrushMode(m) {
+  Brush.mode = m;
+  // اگر دکمه‌ها داری، همین‌جا کلاس‌هاشون رو toggle کن
+}
+
+function getCanvasXYFromMouse(ev) {
+  const r = maskCanvas.getBoundingClientRect();
+  return [(ev.clientX - r.left), (ev.clientY - r.top)];
+}
+
+function buildClipPathFromLayer(layer) {
+  dlog('buildClipPathFromLayer() start', { hasLayer: !!layer });
+  const gj = layer?.toGeoJSON();
+  const geom = gj?.geometry;
+  if (!geom) { dlog('no geometry'); return null; }
+
+  // یکبار offset حساب کن
+  const mapRect = map.getContainer().getBoundingClientRect();
+  const canvasRect = maskCanvas.getBoundingClientRect();
+  const offX = canvasRect.left - mapRect.left;
+  const offY = canvasRect.top - mapRect.top;
+
+  const p = new Path2D();
+
+  const addRing = (ring) => {
+    ring.forEach(([lng, lat], i) => {
+      const pt = map.latLngToContainerPoint([lat, lng]);
+      const cx = pt.x - offX;
+      const cy = pt.y - offY;
+      if (i === 0) p.moveTo(cx, cy); else p.lineTo(cx, cy);
+    });
+    p.closePath();
+  };
+
+  if (geom.type === 'Polygon') {
+    geom.coordinates.forEach(addRing);
+  } else if (geom.type === 'MultiPolygon') {
+    geom.coordinates.forEach(poly => poly.forEach(addRing));
+  } else {
+    dlog('unsupported geometry', { type: geom.type });
+    return null;
+  }
+
+  dlog('clip path built', { offX, offY });
+
+  // تست دیداری: یکبار دور کلیپ را قرمز بکش
+  try {
+    const w = cursorCanvas.width / DPR;
+    const h = cursorCanvas.height / DPR;
+    cursorCtx.save();
+    cursorCtx.clearRect(0, 0, w, h);
+    cursorCtx.setLineDash([6, 4]);
+    cursorCtx.strokeStyle = 'red';
+    cursorCtx.lineWidth = 2;
+    cursorCtx.stroke(p);
+    cursorCtx.restore();
+  } catch (err) {
+    derr('failed to draw debug clip outline', err);
+  }
+
+  return p;
+}
+
+function redrawClipOverlay() {
+  const w = cursorCanvas.width / DPR, h = cursorCanvas.height / DPR;
+  cursorCtx.clearRect(0, 0, w, h);
+  if (!Brush.clipPath) return;
+
+  cursorCtx.save();
+  // dim بیرون
+  cursorCtx.fillStyle = 'rgba(0,0,0,0.35)';
+  cursorCtx.fillRect(0, 0, w, h);
+  cursorCtx.globalCompositeOperation = 'destination-out';
+  cursorCtx.fill(Brush.clipPath);
+  cursorCtx.restore();
+
+  // خط‌چین دور کلیپ
+  cursorCtx.save();
+  cursorCtx.setLineDash([6, 4]);
+  cursorCtx.strokeStyle = 'rgba(80,160,255,.95)';
+  cursorCtx.lineWidth = 1.5;
+  cursorCtx.stroke(Brush.clipPath);
+  cursorCtx.restore();
+}
+
+
+async function onPolygonSelectedForBrush(layer) {
+  dlog('onPolygonSelectedForBrush()', { layerExists: !!layer });
+  resizeCanvasToMap(); // اطمینان از sync بودن
+  Brush.clipPath = buildClipPathFromLayer(layer);
+  redrawClipOverlay();
+  dlog('buildClipPathFromLayer()', { hasClip: !!Brush.clipPath });
+}
+
+const sizeEl = document.getElementById('brushSize');
+const sizeVal = document.getElementById('brushSizeVal');
+const hardEl = document.getElementById('brushHard');
+const hardVal = document.getElementById('brushHardVal');
+const modeVeg = document.getElementById('modeVeg');
+const modeBg = document.getElementById('modeBg');
+const clipChk = document.getElementById('clipToPoly');
+const clearBtn = document.getElementById('clearMask');
+const saveBtn = document.getElementById('saveMaskBtn');
+const saveStat = document.getElementById('maskSaveStatus');
+
+function setMode(m) {
+  Brush.mode = m;
+  modeVeg?.classList.toggle('primary', m === 'veg');
+  modeBg?.classList.toggle('primary', m === 'bg');
+}
+modeVeg?.addEventListener('click', () => setMode('veg'));
+modeBg?.addEventListener('click', () => setMode('bg'));
+setMode('veg');
+
+sizeEl?.addEventListener('input', () => {
+  Brush.size = parseInt(sizeEl.value || '16', 10);
+  sizeVal && (sizeVal.textContent = `${Brush.size} px`);
+});
+hardEl?.addEventListener('input', () => {
+  Brush.hard = Math.max(0, Math.min(1, parseFloat(hardEl.value || '1')));
+  hardVal && (hardVal.textContent = Brush.hard.toFixed(2));
+});
+sizeVal && (sizeVal.textContent = `${sizeEl?.value || 16} px`);
+hardVal && (hardVal.textContent = (hardEl?.value || 1).toString());
+
+
+
+// ========== Painting ==========
+let painting = false, lastPt = null;
+
+function getCanvasXY(ev) {
+  const r = maskCanvas.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+function drawDot(cx, cy) {
+  dlog('drawDot()', { cx, cy, BRUSH_ACTIVE, hasClip: !!Brush.clipPath, mode: Brush.mode, canvasW: maskCanvas.width, canvasH: maskCanvas.height });
+  if (!maskCtx) { derr('maskCtx missing'); return; }
+
+  if (BRUSH_ACTIVE) {
+    if (!Brush.clipPath) { dlog('skip: no clipPath while brush active'); return; }
+    const inside = maskCtx.isPointInPath(Brush.clipPath, cx, cy);
+    if (!inside) { dlog('skip: outside clipPath', { cx, cy }); return; }
+  }
+
+  const r = Brush.size * 0.5;
+
+  if (Brush.mode === 'veg') {
+    maskCtx.save();
+    maskCtx.globalCompositeOperation = 'source-over';
+    const g = maskCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, 'rgba(0,255,0,0.95)');
+    g.addColorStop(Math.max(0, 1 - Brush.hard), 'rgba(0,255,0,0.95)');
+    g.addColorStop(1, 'rgba(0,255,0,0.05)');
+    maskCtx.fillStyle = g;
+    maskCtx.beginPath();
+    maskCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    maskCtx.fill();
+    maskCtx.restore();
+  } else {
+    maskCtx.save();
+    maskCtx.globalCompositeOperation = 'destination-out';
+    maskCtx.beginPath();
+    maskCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    maskCtx.fill();
+    maskCtx.restore();
+
+    if (cursorCtx) {
+      cursorCtx.save();
+      cursorCtx.strokeStyle = 'rgba(255,70,70,0.9)';
+      cursorCtx.lineWidth = 1;
+      cursorCtx.beginPath();
+      cursorCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      cursorCtx.stroke();
+      cursorCtx.restore();
+    }
+  }
+  dlog('dot applied');
+}
+
+maskCanvas?.addEventListener('mousedown', (e) => {
+  dlog('mousedown', { BRUSH_ACTIVE, hasClip: !!Brush.clipPath });
+  if (!BRUSH_ACTIVE) return;
+
+  // اگر کلیپ‌پث نداریم، از پولیگان انتخاب‌شده بساز
+  if (!Brush.clipPath) {
+    const sel = window.POLYCTX?.selectedLayer || null;
+    if (sel) Brush.clipPath = buildClipPathFromLayer(sel);
+    if (!Brush.clipPath) {
+      alert('ابتدا یک پولیگان را انتخاب کنید.');
+      return;
+    }
+  }
+
+  e.preventDefault();
+  e.stopPropagation();
+  map.dragging.disable();
+  painting = true;
+
+  const [x, y] = getCanvasXYFromMouse(e);
+
+  const inside = maskCtx.isPointInPath(Brush.clipPath, x, y);
+  dlog('mousedown coords', { x, y, inside });
+
+  if (!inside) return;
+
+  drawDot(x, y);
+  lastPt = [x, y];
+});
+
+maskCanvas?.addEventListener('mousemove', (e) => {
+  console.count('mousemove');
+  dlog('mousemove', { BRUSH_ACTIVE, painting });
+  if (!BRUSH_ACTIVE) return;
+  const [x, y] = getCanvasXYFromMouse(e);
+
+  cursorCtx.clearRect(0, 0, cursorCanvas.width / DPR, cursorCanvas.height / DPR);
+  if (Brush.clipPath) redrawClipOverlay();
+
+  if (!painting) {
+    cursorCtx.save();
+    cursorCtx.strokeStyle = (Brush.mode === 'veg') ? 'rgba(0,255,0,0.9)' : 'rgba(255,70,70,0.9)';
+    cursorCtx.lineWidth = 1;
+    cursorCtx.beginPath();
+    cursorCtx.arc(x, y, Brush.size * 0.5, 0, Math.PI * 2);
+    cursorCtx.stroke();
+    cursorCtx.restore();
+    return;
+  }
+
+  if (lastPt) {
+    const dx = x - lastPt[0], dy = y - lastPt[1];
+    const steps = Math.ceil(Math.hypot(dx, dy) / (Brush.size * 0.35));
+    for (let i = 1; i <= steps; i++) {
+      const px = lastPt[0] + (dx * i) / steps;
+      const py = lastPt[1] + (dy * i) / steps;
+      drawDot(px, py);
+    }
+  } else {
+    drawDot(x, y);
+  }
+  lastPt = [x, y];
+  dlog('mousemove coords', { x, y });
+});
+
+window.addEventListener('mouseup', () => {
+  dlog('mouseup', { wasPainting: painting });
+  if (painting) {
+    painting = false;
+    lastPt = null;
+    debouncedAutoSave();
+  }
+  map.dragging.enable();
+  dlog('dragging re-enabled');
+  // پاک کردن حلقهٔ راهنما
+  cursorCtx.clearRect(0, 0, cursorCanvas.width / DPR, cursorCanvas.height / DPR);
+
+  // اگر کلیپ‌پث داری و قلم روشنه، دوباره ناحیه کلیپ رو بکش
+  if (Brush.clipPath && BRUSH_ACTIVE) {
+    redrawClipOverlay();
+  }
+});
+
+maskCanvas.addEventListener('mouseleave', () => {
+  painting = false; lastPt = null;
+  map.dragging.enable();
+});
+
+// Clear / Save
+clearBtn?.addEventListener('click', () => {
+  if (!maskCtx || !maskCanvas) return;
+  const w = maskCanvas.width / DPR, h = maskCanvas.height / DPR;
+  maskCtx.clearRect(0, 0, w, h);
+  debouncedAutoSave();
+});
+saveBtn?.addEventListener('click', () => doSaveMask());
+
+let saveTimer = null;
+function debouncedAutoSave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => doSaveMask(), 800); }
+
+async function doSaveMask() {
+  // اختیاری: باینری‌سازی در کلاینت، فقط داخل کلیپ
+  if (Brush.clipPath && BRUSH_ACTIVE) {
+    const w = maskCanvas.width / DPR, h = maskCanvas.height / DPR;
+    // کپیِ رنگیِ قلم
+    const src = document.createElement('canvas'); src.width = w; src.height = h;
+    src.getContext('2d').drawImage(maskCanvas, 0, 0, w, h);
+
+    // بوم باینری
+    const bin = document.createElement('canvas'); bin.width = w; bin.height = h;
+    const bctx = bin.getContext('2d');
+
+    // فقط داخل پلیگان
+    bctx.save();
+    bctx.fillStyle = '#000';
+    bctx.fillRect(0, 0, w, h);
+    bctx.globalCompositeOperation = 'source-over';
+    bctx.clip(Brush.clipPath);
+    // آلفای پیکسل‌های قلم (هرچی >0 را 255 کن)
+    const id = src.getContext('2d').getImageData(0, 0, w, h);
+    const out = bctx.createImageData(w, h);
+    for (let i = 0; i < id.data.length; i += 4) {
+      const a = id.data[i + 3]; // آلفا
+      const v = a > 0 ? 255 : 0;
+      out.data[i] = v; out.data[i + 1] = v; out.data[i + 2] = v; out.data[i + 3] = 255;
+    }
+    bctx.putImageData(out, 0, 0);
+    bctx.restore();
+
+    // حالا به‌جای maskCanvas، همین bin را ذخیره می‌کنیم
+    const blob = await new Promise(res => bin.toBlob(res, 'image/png', 1));
+    const buf = await blob.arrayBuffer();
+    await fetch('/api/save_mask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: new Uint8Array(buf)
+    });
+    saveStat && (saveStat.textContent = 'Saved', setTimeout(() => saveStat.textContent = '', 1200));
+    return;
+  }
+  if (!maskCanvas) return;
+  const w = maskCanvas.width / DPR, h = maskCanvas.height / DPR;
+
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  tmp.getContext('2d').drawImage(maskCanvas, 0, 0, w, h);
+
+  const blob = await new Promise(res => tmp.toBlob(res, 'image/png', 1));
+  const buf = await blob.arrayBuffer();
+
+  const r = await fetch('/api/save_mask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: new Uint8Array(buf)
+  });
+  if (saveStat) {
+    saveStat.textContent = r.ok ? 'Saved' : 'Save failed';
+    setTimeout(() => saveStat.textContent = '', 1200);
+  }
+}
+
+(function wireBrushButton(){
+  const btn = document.getElementById('toggleBrushBtn');
+  dlog('wireBrushButton()', { btnExists: !!btn });
+  if (!btn) return;
+
+  // از چندبار بایند شدن جلوگیری کن
+  if (btn.__brushBound) { dlog('brush button already bound'); return; }
+  btn.__brushBound = true;
+
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dlog('toggleBrushBtn click');
+    setBrushActive(!BRUSH_ACTIVE);
+  });
+})();
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t && (t.id === 'toggleBrushBtn' || t.closest?.('#toggleBrushBtn'))) {
+    dlog('document click → toggleBrushBtn');
+    e.preventDefault();
+    e.stopPropagation();
+    setBrushActive(!BRUSH_ACTIVE);
+  }
+}, true); // useCapture=true تا قبل از canvas عمل کند
+
+// ========== Draw / Edit polygons ==========
+function initDraw() {
+  dlog('initDraw()');
   const drawnItems = new L.FeatureGroup();
   map.addLayer(drawnItems);
 
-  // --------- Tooltip HTML ----------
+  const defaultProps = { label: '', class_id: 1, color: '#00ff00' };
+  let selectedLayer = null, selectedStyleBackup = null;
+
   function layerTooltipHtml(props) {
     const p = props || {};
-    const toFixed = (v, n = 2) => (typeof v === 'number' ? v.toFixed(n) : (v ?? ''));
-    return `
-      <div style="font:12px/1.4 sans-serif">
-        <div><b>Label:</b> ${p.label ?? ''}</div>
-        <div><b>Class:</b> ${p.class_id ?? ''}</div>
-        <div><b>Area (m²):</b> ${toFixed(p.area_m2, 2)}</div>
-        <div><b>Perimeter (m):</b> ${toFixed(p.perimeter_m, 2)}</div>
-        <div><b>Centroid:</b> ${toFixed(p.centroid_lat,6)}, ${toFixed(p.centroid_lon,6)}</div>
-        <div><b>UID:</b> ${p.uid ?? ''}</div>
-      </div>`;
+    const fx = (v, n = 2) => (typeof v === 'number' ? v.toFixed(n) : (v ?? ''));
+    return `<div style="font:12px/1.4 sans-serif">
+      <div><b>Label:</b> ${p.label ?? ''}</div>
+      <div><b>Class:</b> ${p.class_id ?? ''}</div>
+      <div><b>Area (m²):</b> ${fx(p.area_m2)}</div>
+      <div><b>Perimeter (m):</b> ${fx(p.perimeter_m)}</div>
+      <div><b>Centroid:</b> ${fx(p.centroid_lat, 6)}, ${fx(p.centroid_lon, 6)}</div>
+      <div><b>UID:</b> ${p.uid ?? ''}</div>
+    </div>`;
   }
 
-  // --------- Add layer with props ----------
+  const enableEditFor = (layer) => { try { if (layer?.editing && !layer.editing.enabled()) layer.editing.enable(); } catch { } };
+  const disableEditFor = (layer) => { try { if (layer?.editing && layer.editing.enabled()) layer.editing.disable(); } catch { } };
+
+  function setBrushActive(on) {
+    BRUSH_ACTIVE = !!on;
+    dlog('setBrushActive()', { BRUSH_ACTIVE, pointer: maskCanvas?.style.pointerEvents });
+
+    // selectedLayer را از window.POLYCTX بگیر تا همیشه یکسان باشد
+    const sel = window.POLYCTX?.selectedLayer || null;
+    dlog('current selectedLayer', { hasSel: !!sel });
+
+    const btn = document.getElementById('toggleBrushBtn');
+    btn?.classList.toggle('primary', BRUSH_ACTIVE);
+
+    if (BRUSH_ACTIVE) {
+      if (!sel) {
+        dlog('brush ON but no selected polygon → abort');
+        BRUSH_ACTIVE = false;
+        btn?.classList.remove('primary');
+        maskCanvas.style.pointerEvents = 'none';
+        cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+        alert('ابتدا یک پولیگان را انتخاب کنید.');
+        return;
+      }
+      maskCanvas.style.pointerEvents = 'auto';
+      Brush.clipPath = buildClipPathFromLayer(sel);
+      dlog('clipPath set (ON)', { hasClip: !!Brush.clipPath });
+      redrawClipOverlay();
+      try { if (sel.editing?.enabled?.()) sel.editing.disable(); } catch { }
+    } else {
+      maskCanvas.style.pointerEvents = 'none';
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      if (sel) { try { if (sel.editing && !sel.editing.enabled()) sel.editing.enable(); } catch { } }
+      dlog('brush OFF, canvas disabled');
+    }
+  }
+
+  // حتماً سراسری کن تا از کنسول هم بتونی تست کنی
+  window.setBrushActive = setBrushActive;
+  document.getElementById('toggleBrushBtn')?.addEventListener('click', () => {
+    dlog('toggleBrushBtn click');
+    setBrushActive(!BRUSH_ACTIVE);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'b') { e.preventDefault(); setBrushActive(!BRUSH_ACTIVE); }
+    if (e.key === 'Escape') { setBrushActive(false); }
+  });
+
+  async function onPolygonSelected(layer) {
+    dlog('onPolygonSelected()', { id: layer?._leaflet_id });
+    if (selectedLayer && selectedStyleBackup) { try { selectedLayer.setStyle(selectedStyleBackup); } catch { } }
+    selectedLayer = layer;
+    if (layer?.setStyle) { selectedStyleBackup = { ...layer.options }; layer.setStyle({ color: '#4f46e5', weight: 3 }); }
+
+    setLabelUIFromValue(layer?._props?.label ?? '');
+    const inpClass = document.getElementById('polyClass');
+    const inpColor = document.getElementById('polyColor');
+    if (inpClass) inpClass.value = String(layer?._props?.class_id ?? defaultProps.class_id);
+    if (inpColor) inpColor.value = layer?._props?.color ?? defaultProps.color;
+
+    try { map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 18, padding: [20, 20] }); } catch { }
+    await onPolygonSelectedForBrush(layer); // این خودش drawClipOverlay را صدا می‌زند
+
+    if (BRUSH_ACTIVE) {
+      maskCanvas.style.pointerEvents = 'auto';
+      disableEditFor(layer);
+    } else {
+      enableEditFor(layer);
+    }
+  }
+
   function addLayerWithProps(layer, props) {
     layer._props = { ...(props || {}) };
     const col = (layer._props.color || '#00ff00').toLowerCase();
-    if (layer.setStyle) layer.setStyle({ color: col, weight: 2 });
+    layer.setStyle?.({ color: col, weight: 2 });
     layer.bindTooltip(layerTooltipHtml(layer._props), { sticky: true });
-    layer.on('click', () => selectLayer(layer));
+
+    layer.on('click', () => onPolygonSelected(layer));
+    layer.on('edit', () => { if (layer === selectedLayer) onPolygonSelectedForBrush(layer); });
+
     drawnItems.addLayer(layer);
   }
 
-  // --------- Reload from server ----------
   async function reloadFromServer() {
     drawnItems.clearLayers();
-    selectedLayer = null;
-    fillFormFromLayer(null);
-
+    selectedLayer = null; selectedStyleBackup = null;
+    setLabelUIFromValue('');
     const r = await fetch('/api/polygons', { cache: 'no-store' });
     const g = r.ok ? await r.json() : null;
     if (!g) return;
-
     L.geoJson(g, {
       onEachFeature: (feat, layer) => addLayerWithProps(layer, feat.properties || {}),
-      style: f => ({ color: (f.properties && f.properties.color) ? f.properties.color : '#00ff00', weight: 2 })
+      style: f => ({ color: (f.properties?.color) || '#00ff00', weight: 2 })
     });
   }
+  reloadFromServer().catch(() => { });
 
-  // --------- Selection & form ----------
-  const defaultProps = { label: '', class_id: 1, color: '#00ff00' }; // Vegetation by default
-  let selectedLayer = null, selectedStyleBackup = null;
-
-  function selectLayer(layer) {
-    if (selectedLayer && selectedStyleBackup) {
-      try { selectedLayer.setStyle(selectedStyleBackup); } catch {}
-    }
-    selectedLayer = layer;
-    if (layer && layer.setStyle) {
-      selectedStyleBackup = { ...layer.options };
-      layer.setStyle({ color: '#4f46e5', weight: 3 }); // highlight
-    } else {
-      selectedStyleBackup = null;
-    }
-    fillFormFromLayer(layer);
-  }
-
-  function fillFormFromLayer(layer) {
-    const inpClass = document.getElementById('polyClass');
-    const inpColor = document.getElementById('polyColor');
-    if (!inpClass || !inpColor) return;
-
-    if (!layer) {
-      // defaults
-      setLabelUIFromValue('');
-      inpClass.value = String(defaultProps.class_id); // "1" Vegetation
-      inpColor.value = defaultProps.color;
-      return;
-    }
-    const props = layer._props || {};
-    setLabelUIFromValue(props.label ?? '');
-    inpClass.value = String(props.class_id ?? defaultProps.class_id);
-    inpColor.value = props.color ?? defaultProps.color;
-  }
-
-  function applyFormToLayer(layer) {
-    if (!layer) return;
-
-    const label    = getSelectedLabelLocal();
-    const class_id = parseInt(document.getElementById('polyClass')?.value || '1', 10);
-    const color    = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
-
-    layer._props = { ...(layer._props || {}), label, class_id, color };
-
-    if (layer.setStyle) layer.setStyle({ color, weight: 2 });
-    // update tooltip content, binding if needed
-    if (typeof layer.setTooltipContent === 'function') {
-      layer.setTooltipContent(layerTooltipHtml(layer._props));
-    } else if (layer.getTooltip && layer.getTooltip()) {
-      layer.getTooltip().setContent(layerTooltipHtml(layer._props));
-    } else {
-      layer.bindTooltip(layerTooltipHtml(layer._props), { sticky: true });
-    }
-  }
-
-  // --------- Initial load ----------
-  reloadFromServer().catch(()=>{});
-
-  // --------- Draw control ----------
   const drawControl = new L.Control.Draw({
     draw: {
       polygon: { shapeOptions: { color: defaultProps.color, weight: 2 } },
@@ -194,244 +671,137 @@ function initDraw(map) {
   map.on(L.Draw.Event.CREATED, (e) => {
     const layer = e.layer;
     addLayerWithProps(layer, defaultProps);
-    selectLayer(layer);
+    onPolygonSelected(layer);
   });
 
-  drawnItems.on('click', (e) => { if (e.layer) selectLayer(e.layer); });
-
-  // --------- Side form actions ----------
   document.getElementById('applyPropsBtn')?.addEventListener('click', () => {
     if (!selectedLayer) return alert('ابتدا یک پولیگان را انتخاب کنید.');
-    applyFormToLayer(selectedLayer);
+    const label = getSelectedLabelLocal();
+    const class_id = parseInt(document.getElementById('polyClass')?.value || '1', 10);
+    const color = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
+    selectedLayer._props = { ...(selectedLayer._props || {}), label, class_id, color };
+    selectedLayer.setStyle?.({ color, weight: 2 });
+    selectedLayer.getTooltip()?.setContent(layerTooltipHtml(selectedLayer._props));
   });
 
   document.getElementById('setDefaultPropsBtn')?.addEventListener('click', () => {
-    const LBL = getSelectedLabelLocal();
-    const CLS = parseInt(document.getElementById('polyClass')?.value || '1', 10);
-    const COL = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
-    defaultProps.label = LBL; defaultProps.class_id = CLS; defaultProps.color = COL;
+    defaultProps.label = getSelectedLabelLocal();
+    defaultProps.class_id = parseInt(document.getElementById('polyClass')?.value || '1', 10);
+    defaultProps.color = (document.getElementById('polyColor')?.value || '#00ff00').toLowerCase();
     alert('پیش‌فرض به‌روزرسانی شد.');
   });
 
-  // --------- Save to server ----------
   document.getElementById('savePolygonsBtn')?.addEventListener('click', async () => {
     const fc = { type: 'FeatureCollection', features: [] };
     drawnItems.eachLayer(layer => {
-      try {
-        const gj = layer.toGeoJSON();
-        gj.properties = { ...(gj.properties || {}), ...(layer._props || {}) };
-        fc.features.push(gj);
-      } catch (err) { console.warn(err); }
+      try { const gj = layer.toGeoJSON(); gj.properties = { ...(gj.properties || {}), ...(layer._props || {}) }; fc.features.push(gj); } catch { }
     });
     const r = await fetch('/api/save_polygons', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fc)
     });
     alert(r.ok ? 'ذخیره شد' : 'خطا در ذخیره');
     if (r.ok) reloadFromServer();
   });
 
-  // --------- Upload GeoJSON / Shapefile.zip ----------
   document.getElementById('loadPolygonsBtn')?.addEventListener('click', async () => {
-    const inp = document.getElementById('polyUpload');
-    const file = inp?.files?.[0];
+    const inp = document.getElementById('polyUpload'); const file = inp?.files?.[0];
     if (!file) return alert('فایل .geojson/.json یا .zip را انتخاب کنید.');
     const fd = new FormData(); fd.append('file', file);
     const r = await fetch('/api/polygons/upload', { method: 'POST', body: fd });
-    const j = await r.json().catch(()=> ({}));
+    const j = await r.json().catch(() => ({}));
     if (!r.ok) return alert('خطا: ' + (j.error || 'upload failed'));
-    await reloadFromServer();
-    alert('پولیگان‌ها بارگذاری شدند.');
+    await reloadFromServer(); alert('پولیگان‌ها بارگذاری شدند.');
   });
 
-  // --------- Snap (defensive) ----------
-  const guideLayers = [drawnItems];
-
-  map.on(L.Draw.Event.DRAWSTART, (e) => {
-    try {
-      const handler = e.handler;
-      const poly = handler && (handler._poly || handler._polyline);
-      if (poly && L?.Handler?.PolylineSnap) {
-        const snap = new L.Handler.PolylineSnap(map, poly, { snapDistance: 12, snapVertices: true });
-        guideLayers.forEach(gl => snap.addGuideLayer(gl));
-      }
-      if (handler?._markers && L?.Handler?.MarkerSnap) {
-        handler._markers.forEach(m => {
-          const ms = new L.Handler.MarkerSnap(map, m, { snapDistance: 12, snapVertices: true });
-          guideLayers.forEach(gl => ms.addGuideLayer(gl));
-        });
-      }
-    } catch {}
-  });
-
-  map.on(L.Draw.Event.EDITSTART, () => {
-    drawnItems.eachLayer(layer => {
-      try {
-        if (layer.editing && layer.editing.enable) layer.editing.enable();
-        if (L?.Handler?.PolylineSnap) {
-          const snap = new L.Handler.PolylineSnap(map, layer, { snapDistance: 12, snapVertices: true });
-          guideLayers.forEach(gl => snap.addGuideLayer(gl));
-        }
-      } catch {}
-    });
-  });
-
-  // --------- Keyboard UX ----------
-  window.POLYCTX = { map, drawnItems, drawControl };
-
-  const PAN_STEP  = 100; // px
-  const ZOOM_STEP = 2;
-
-  function startPolygonDraw() {
-    if (!window.L || !window.L.Draw?.Polygon) return;
-    const handler = new L.Draw.Polygon(map, drawControl.options.draw.polygon || {});
-    handler.enable();
-  }
-  function toggleEditMode() {
-    try {
-      drawControl._toolbars?.edit?._modes?.edit?.handler?.enable();
-    } catch {}
-  }
   function panBy(dx, dy) { map.panBy([dx, dy], { animate: false }); }
-  function zoomDelta(dz) { if (dz > 0) map.zoomIn(dz); else map.zoomOut(-dz); }
-  function save() { document.getElementById('savePolygonsBtn')?.click(); }
+  function savePolys() { document.getElementById('savePolygonsBtn')?.click(); }
   function toggleHelp() {
     let el = document.getElementById('hotkeyHelp');
     if (!el) {
-      el = document.createElement('div');
-      el.id = 'hotkeyHelp';
+      el = document.createElement('div'); el.id = 'hotkeyHelp';
       el.style.cssText = 'position:fixed; right:12px; bottom:12px; z-index:99999; background:rgba(0,0,0,.75); color:#fff; padding:12px; border-radius:8px; max-width:460px; font:12px/1.6 ui-sans-serif,system-ui;';
-      el.innerHTML = `
-        <b>Shortcuts (Polygon)</b><br>
-        Zoom: + / - &nbsp;|&nbsp; Pan: Arrows or WASD<br>
-        Start polygon: P &nbsp;|&nbsp; Finish: Enter (double-click) &nbsp;|&nbsp; Cancel: Esc &nbsp;|&nbsp; Delete last vertex: Backspace<br>
-        Edit nodes: E &nbsp;|&nbsp; Save: Ctrl/Cmd + S<br>
-        Close: ?
-      `;
+      el.innerHTML = `<b>Shortcuts (Polygon)</b><br>Zoom: + / - | Pan: Arrows/WASD<br>P Start • Enter Finish • Esc Cancel • Backspace Del last • E Toggle edit • Ctrl/Cmd+S Save<br>Close: ?`;
       document.body.appendChild(el);
-    } else {
-      el.remove();
-    }
+    } else el.remove();
   }
 
-
-window.addEventListener('keydown', (e) => {
-  const tag = (e.target && e.target.tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isComposing) return;
-
-  // جلوگیری از رفتار پیش‌فرض و برگشت به هندلرهای دیگر
-  const kill = () => { e.preventDefault(); e.stopPropagation(); };
-
-  // ذخیره
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { kill(); save(); return; }
-
-  // ضرایب: Shift=خیلی زیاد، Alt=زیاد، عادی=۱
-  const mult = e.shiftKey ? MULT_ULTRA : (e.altKey ? MULT_FAST : 1);
-
-  switch (e.key) {
-    case '+':
-    case '=': kill(); zoomBy(+BASE_STEP * mult); break;
-    case '-': kill(); zoomBy(-BASE_STEP * mult); break;
-
-    case 'ArrowUp':
-    case 'w': case 'W': kill(); panBy(0, -100); break;
-    case 'ArrowDown':
-    case 's': case 'S': kill(); panBy(0, +100); break;
-    case 'ArrowLeft':
-    case 'a': case 'A': kill(); panBy(-100, 0); break;
-    case 'ArrowRight':
-    case 'd': case 'D': kill(); panBy(+100, 0); break;
-
-    case 'p': case 'P': kill(); startPolygonDraw(); break;
-    case 'e': case 'E': kill(); toggleEditMode(); break;
-    case '?':
-    case 'h': case 'H': kill(); toggleHelp(); break;
-  }
-});
-
-  // --------- Mouse position (light Folium-like) ----------
-  const MousePos = L.Control.extend({
-    options: { position: 'bottomright' },
-    onAdd: function() {
-      const div = L.DomUtil.create('div', 'leaflet-bar');
-      div.style.padding = '4px 8px'; div.style.background = 'rgba(0,0,0,.45)';
-      div.style.color = '#fff'; div.style.font = '12px/1.4 sans-serif';
-      div.textContent = 'Lat, Lon: –';
-      map.on('mousemove', (ev) => {
-        const f = (n) => L.Util.formatNum(n, 6);
-        div.textContent = `Lat, Lon: ${f(ev.latlng.lat)} , ${f(ev.latlng.lng)}`;
-      });
-      return div;
+  window.addEventListener('keydown', (e) => {
+    const tag = (e.target?.tagName || '').toLowerCase();
+    if (['input', 'textarea', 'select'].includes(tag) || e.isComposing) return;
+    const kill = () => { e.preventDefault(); e.stopPropagation(); };
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { kill(); savePolys(); return; }
+    const mult = e.shiftKey ? MULT_ULTRA : (e.altKey ? MULT_FAST : 1);
+    switch (e.key) {
+      case '+': case '=': kill(); zoomBy(+BASE_STEP * mult); break;
+      case '-': kill(); zoomBy(-BASE_STEP * mult); break;
+      case 'ArrowUp': case 'w': case 'W': kill(); panBy(0, -100); break;
+      case 'ArrowDown': case 's': case 'S': kill(); panBy(0, +100); break;
+      case 'ArrowLeft': case 'a': case 'A': kill(); panBy(-100, 0); break;
+      case 'ArrowRight': case 'd': case 'D': kill(); panBy(+100, 0); break;
+      case 'e': case 'E': kill(); if (selectedLayer) { const en = selectedLayer?.editing?.enabled?.(); en ? disableEditFor(selectedLayer) : enableEditFor(selectedLayer); } break;
+      case '?': case 'h': case 'H': kill(); toggleHelp(); break;
     }
   });
-  map.addControl(new MousePos());
+
+  window.POLYCTX = { map, drawnItems, drawControl, get selectedLayer() { return selectedLayer; } };
 }
 
-/* ==========================
-   Alignment Nudge (meters)
-========================== */
-let alignDx = 0, alignDy = 0; // آخرین آفست لود‌شده از سرور
-
+// ========== Overlay nudge (meters) ==========
+let alignDx = 0, alignDy = 0;
 async function loadOffset() {
   try {
     const r = await fetch('/api/align_offset', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      alignDx = +j.dx_m || 0; alignDy = +j.dy_m || 0;
-    }
-  } catch {/* ignore */}
+    if (r.ok) { const j = await r.json(); alignDx = +j.dx_m || 0; alignDy = +j.dy_m || 0; }
+  } catch { }
 }
-
 async function nudge(dx_m, dy_m) {
-  alignDx += dx_m;
-  alignDy += dy_m;
-  await fetch('/api/align_offset', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ dx_m: alignDx, dy_m: alignDy })
-  });
-  // سرور bounds را با آفست جدید برمی‌گرداند
-  const r = await fetch('/api/s2_bounds_wgs84', { cache:'no-store' });
+  alignDx += dx_m; alignDy += dy_m;
+  await fetch('/api/align_offset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dx_m: alignDx, dy_m: alignDy }) });
+  const r = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
   if (r.ok) {
     const b = await r.json();
-    const newBounds = [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]];
-    if (overlay) overlay.setBounds(newBounds);
+    const newB = [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]];
+    overlay?.setBounds(newB);
   }
 }
-
-// شورتکات‌ها: Alt + Arrow برای نودج (۵ متر؛ با Shift=۲۰ متر)
 window.addEventListener('keydown', (e) => {
   if (!overlay || !e.altKey) return;
   const STEP = (e.shiftKey ? 20 : 5);
   switch (e.key) {
-    case 'ArrowLeft':  e.preventDefault(); nudge(-STEP, 0); break;
+    case 'ArrowLeft': e.preventDefault(); nudge(-STEP, 0); break;
     case 'ArrowRight': e.preventDefault(); nudge(+STEP, 0); break;
-    case 'ArrowUp':    e.preventDefault(); nudge(0, +STEP); break; // شمال
-    case 'ArrowDown':  e.preventDefault(); nudge(0, -STEP); break; // جنوب
+    case 'ArrowUp': e.preventDefault(); nudge(0, +STEP); break;
+    case 'ArrowDown': e.preventDefault(); nudge(0, -STEP); break;
   }
 });
 
-/* =========================================
-   Single bootstrap flow (no top-level await)
-========================================= */
+// ========== Bootstrap ==========
 (async function bootstrap() {
   try {
     await loadOffset();
-    // سعی کن bounds صحنه را بگیری
     const r = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
     if (r.ok) {
       const b = await r.json();
       const bounds = [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]];
       const initialOpacity = slider ? (parseInt(slider.value, 10) || 60) / 100 : 0.6;
       overlay = L.imageOverlay('/api/output/rgb_quicklook.png?t=' + Date.now(), bounds, { opacity: initialOpacity }).addTo(map);
-      if (lbl) lbl.textContent = initialOpacity.toFixed(2);
+      lbl && (lbl.textContent = initialOpacity.toFixed(2));
       map.fitBounds(bounds);
     } else {
-      map.setView([29.0, 52.0], 12); // fallback
+      map.setView([29, 52], 12);
     }
   } catch {
-    map.setView([29.0, 52.0], 12); // fallback
+    map.setView([29, 52], 12);
   } finally {
-    initDraw(map); // همیشه یک‌بار
+    setTimeout(() => { try { map.invalidateSize(false); } catch { } }, 50);
+    initDraw();
+    setTimeout(resizeAll, 0);
   }
 })();
+
+// ========== Expose helper for post-upload refresh ==========
+window.reloadBackdropAndMaskAfterUpload = () => {
+  backdropImg.src = '/api/output/rgb_quicklook.png?t=' + Date.now();
+};

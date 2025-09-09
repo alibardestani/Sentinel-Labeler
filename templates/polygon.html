@@ -2,105 +2,91 @@
 {% block title %}Polygon Labeling – Sentinel Labeler{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-  <!-- Snap dependencies (order matters) -->
-  <script src="https://unpkg.com/leaflet-geometryutil"></script>
-  <script src="https://unpkg.com/leaflet-snap/leaflet.snap.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<style>
+  /* Page-specific tweaks */
+  .map-wrap { height: calc(100vh - 110px); }
+
+  #map {
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #1c2435;
+    background: #0b0f19;
+  }
+
+  /* Make draw/zoom controls small but stable (no transform on container) */
+  .leaflet-bar a, .leaflet-bar a:hover {
+    width: 26px;
+    height: 26px;
+    line-height: 26px;
+  }
+  .leaflet-draw-toolbar a {
+    width: 26px !important;
+    height: 26px !important;
+    line-height: 26px !important;
+    background: #fff;
+    border: 1px solid #cfd6e4;
+  }
+  .leaflet-draw-toolbar a:hover { background: #f3f4f6; }
+
+  /* Ensure map controls are above canvases */
+  #maskCanvas, #cursorCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 200;
+    pointer-events: none;
+  }
+  .leaflet-top, .leaflet-bottom, .leaflet-control-container { z-index: 1000; }
+</style>
 {% endblock %}
 
 {% block main %}
-  <div id="map" class="map"></div>
+<div class="map-wrap">
+  <div id="map" class="map">
+    <canvas id="maskCanvas"></canvas>
+    <canvas id="cursorCanvas"></canvas>
+  </div>
+</div>
 {% endblock %}
 
 {% block right_panel %}
-  <div class="section">
-    <div class="muted">ابزارها</div>
-    <div class="toolbar">
-      <div class="muted">ابزار رسم و ویرایش گره‌ها فعال است (Leaflet.Draw)</div>
-      <button class="btn" id="savePolygonsBtn" title="ذخیره‌ی همه‌ی پولیگان‌ها روی دیسک">ذخیره پولیگان‌ها</button>
+{{ super() }}
+<div class="section">
+  <div class="muted">Brush</div>
+  <div class="toolbar" style="gap:10px; flex-wrap:wrap; align-items:center">
+    <label>Size
+      <input id="brushSize" type="range" min="2" max="128" step="1" value="16" />
+      <span id="brushSizeVal">16 px</span>
+    </label>
+    <label>Hardness
+      <input id="brushHard" type="range" min="0" max="1" step="0.05" value="1" />
+      <span id="brushHardVal">1.00</span>
+    </label>
+    <button id="toggleBrushBtn" class="btn">Brush</button>
+    <div class="seg">
+      <button id="modeVeg" class="btn primary">Vegetation</button>
+      <button id="modeBg" class="btn">Erase</button>
     </div>
+    <label style="display:flex; align-items:center; gap:6px;">
+      <input id="clipToPoly" type="checkbox" checked />
+      Clip to selected polygon
+    </label>
+    <button id="clearMask" class="btn">Clear</button>
+    <button id="saveMaskBtn" class="btn primary">Save</button>
+    <span id="maskSaveStatus" class="muted" style="font-size:12px"></span>
   </div>
-
-  <div class="section">
-    <div class="muted">ویژگی پولیگان</div>
-    <div class="toolbar" style="flex-direction:column; gap:8px; align-items:stretch;">
-<label>Label
-  <select id="polyLabelSelect" onchange="toggleCustomLabel(this.value)">
-    <option value="">-- انتخاب کنید --</option>
-    <option value="پسته">پسته</option>
-    <option value="گردو">گردو</option>
-    <option value="نخیلات">نخیلات</option>
-    <option value="مرکبات">مرکبات</option>
-    <option value="زعفران">زعفران</option>
-    <option value="سیب">سیب</option>
-    <option value="__custom__">سایر (وارد کنید)</option>
-  </select>
-</label>
-
-<!-- فیلد مخفی برای حالت "سایر" -->
-<div id="customLabelWrap" style="display:none; margin-top:4px;">
-  <input type="text" id="polyLabelCustom" placeholder="نام محصول" autocomplete="off" />
 </div>
-
-<script>
-function toggleCustomLabel(val) {
-  const wrap = document.getElementById('customLabelWrap');
-  if (val === '__custom__') {
-    wrap.style.display = 'block';
-  } else {
-    wrap.style.display = 'none';
-  }
-}
-
-function getSelectedLabel() {
-  const sel = document.getElementById('polyLabelSelect');
-  const val = sel.value;
-  if (val === '__custom__') {
-    return document.getElementById('polyLabelCustom').value.trim();
-  }
-  return val;
-}
-</script>
-      <label>Class
-        <select id="polyClass">
-          <option value="1" selected>1 — Vegetation</option>
-          <option value="0">0 — Background</option>
-          <option value="2">2 — Other</option>
-        </select>
-      </label>
-      <label>Color
-  <select id="polyColorSelect" onchange="toggleCustomColor(this.value)">
-    <option value="#00ff00">Vegetation (سبز)</option>
-    <option value="#000000">Background (سیاه)</option>
-    <option value="#8b4513">Other (قهوه‌ای)</option>
-    <option value="__custom__">سایر (انتخاب دستی)</option>
-  </select>
-</label>
-
-<!-- فقط وقتی گزینه سفارشی انتخاب بشه نمایش داده میشه -->
-<input type="color" id="polyColorCustom" value="#ffffff" style="display:none;margin-top:6px;" />
-
-      <div style="display:flex; gap:8px; margin-top:8px;">
-        <button class="btn" id="applyPropsBtn" title="ویژگی‌های فرم را روی پولیگان انتخاب‌شده اعمال کن">اعمال</button>
-        <button class="btn" id="setDefaultPropsBtn" title="همین Label/Class/Color را برای پولیگان‌های جدید به‌عنوان پیش‌فرض ذخیره کن">ذخیره به عنوان پیش‌فرض</button>
-      </div>
-      <div class="muted" style="font-size:12px">نکته: برای انتخاب پولیگان، روی آن کلیک کنید (حاشیه بنفش می‌شود).</div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="muted">ورود/خروج</div>
-    <div class="toolbar" style="gap:8px;">
-      <input type="file" id="polyUpload" accept=".geojson,.json,.zip" />
-      <button class="btn" id="loadPolygonsBtn">بارگذاری پولیگان</button>
-      <a class="btn" href="/api/polygons" target="_blank">دانلود GeoJSON</a>
-    </div>
-  </div>
 {% endblock %}
 
 {% block scripts %}
-  <script src="{{ url_for('static', filename='js/polygon.js') }}"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
+<script src="https://unpkg.com/leaflet-geometryutil" defer></script>
+<script src="https://unpkg.com/leaflet-snap/leaflet.snap.js" defer></script>
+<script src="{{ url_for('static', filename='js/polygon.js') }}" defer></script>
 {% endblock %}
