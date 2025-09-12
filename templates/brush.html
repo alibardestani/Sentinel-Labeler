@@ -15,32 +15,39 @@
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid #1c2435;
+    background: #0d1320; /* وقتی بیسمپ دیر لود شد، صفحه سیاه مطلق نباشه */
   }
 
-  .leaflet-top,
-  .leaflet-bottom,
-  .leaflet-control-container {
-    z-index: 1100;
-  }
-
+  /* کانواس‌ها */
   #maskCanvas,
   #cursorCanvas {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none;
-    z-index: 1200;
+    pointer-events: none; /* پیش‌فرض غیرفعاله */
   }
 
-  #cursorCanvas {
-    z-index: 1201;
+  #maskCanvas { z-index: 1306; }
+  #cursorCanvas { z-index: 1307; }
+
+  /* وقتی براش روشن است، ماسک کلیک‌پذیر شود */
+  body.tool-brush #maskCanvas { pointer-events: auto; }
+
+  /* لایه‌های Leaflet پایین‌تر از کانواس‌ها */
+  #map .leaflet-overlay-pane,
+  #map .leaflet-vector-pane {
+    z-index: 1302;
   }
 
-  body.tool-brush #maskCanvas {
-    pointer-events: auto;
+  /* کنترل‌های Leaflet بالاتر از همه */
+  .leaflet-top,
+  .leaflet-bottom,
+  .leaflet-control-container {
+    z-index: 1400;
   }
 
+  /* HUD و چیپ‌ها (استایل‌های دم‌دستی) */
   .hud {
     display: grid;
     gap: 8px;
@@ -51,14 +58,12 @@
     background: var(--pane);
     border-radius: 10px;
   }
-
   .hud .row {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
   }
-
   .chip {
     display: inline-flex;
     align-items: center;
@@ -68,11 +73,7 @@
     padding: 4px 8px;
     border-radius: 999px;
   }
-
-  .num {
-    font-variant-numeric: tabular-nums;
-  }
-
+  .num { font-variant-numeric: tabular-nums; }
   .kbd {
     background: #0f1626;
     border: 1px solid #23304a;
@@ -81,26 +82,10 @@
     font-size: 12px;
   }
 
-  /* وکتورها بالاتر از کانواس‌ها */
-  #map .leaflet-overlay-pane,
-  #map .leaflet-vector-pane {
-    z-index: 1302 !important;
-  }
-
-  /* کنترل‌ها همچنان بالاتر از همه */
-  .leaflet-top,
-  .leaflet-bottom,
-  .leaflet-control-container {
-    z-index: 1304 !important;
-  }
-
-  /* کانواس‌ها کمی پایین‌تر */
-  #maskCanvas {
-    z-index: 1300;
-  }
-
-  #cursorCanvas {
-    z-index: 1301;
+  /* فرم متادیتا (سایدبار چپ) */
+  .section .toolbar label {
+    display: grid;
+    gap: 6px;
   }
 </style>
 {% endblock %}
@@ -110,6 +95,63 @@
   <div id="map" class="map">
     <canvas id="maskCanvas"></canvas>
     <canvas id="cursorCanvas"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block left_panel %}
+<!-- Polygon Properties (سایدبار چپ) -->
+<div class="section">
+  <div class="muted">Polygon Properties</div>
+  <div class="toolbar" style="gap:10px; flex-wrap:wrap">
+    <label style="flex:1 1 100%">UID
+      <input id="polyUid" type="text" style="width:100%" readonly>
+    </label>
+
+    <label style="flex:1 1 100%">Fruit Type
+      <input id="polyUsesFruit" type="text" style="width:100%">
+    </label>
+
+    <label style="flex:1 1 100%">Code
+      <input id="polyCode" type="text" style="width:100%">
+    </label>
+
+    <label>Area (m²)
+      <input id="polyAreaM2" type="number" step="0.01" readonly>
+    </label>
+
+    <label>Lat
+      <input id="polyLat" type="number" step="0.000001" readonly>
+    </label>
+
+    <label>Lon
+      <input id="polyLon" type="number" step="0.000001" readonly>
+    </label>
+
+    <label style="flex:1 1 100%">Label
+      <select id="polyLabelSelect" style="width:100%">
+        <option value="">—</option>
+        <option value="veg">Vegetation</option>
+        <option value="background">Background</option>
+        <option value="__custom__">Custom…</option>
+      </select>
+      <div id="customLabelWrap" style="display:none; margin-top:6px;">
+        <input id="polyLabelCustom" type="text" placeholder="Custom label" style="width:100%">
+      </div>
+    </label>
+
+    <label>Class ID
+      <input id="polyClass" type="number" min="0" step="1" value="1">
+    </label>
+
+    <label>Color
+      <input id="polyColor" type="color" value="#00ff00">
+    </label>
+
+    <div class="pill" style="gap:8px">
+      <button id="applyPropsBtn" class="btn">Apply</button>
+      <button id="savePolygonsBtn" class="btn primary">Save All</button>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -172,8 +214,8 @@
     <button id="loadPolygonsBtn2" class="btn">Upload</button>
   </div>
   <div class="muted" style="font-size:12px">
-    Auto-loads from <code>/api/polygons</code>. Features ideally have <code>tile_id</code>, <code>code</code>,
-    <code>uses_fruit</code>, <code>uid</code>.
+    Auto-loads from <code>/api/polygons</code>. Features ideally have
+    <code>tile_id</code>, <code>code</code>, <code>uses_fruit</code>, <code>uid</code>.
   </div>
 </div>
 {% endblock %}
@@ -186,6 +228,7 @@
 <script src="{{ url_for('static', filename='js/brush/io.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
 
+<!-- Wiring: بعد از لود سه فایل بالا -->
 <script>
   window.addEventListener('DOMContentLoaded', async () => {
     console.log('[BRUSH] bootstrap start');
@@ -198,8 +241,13 @@
         overlayBoundsURL: '/api/s2_bounds_wgs84',
         overlayImageURL: '/api/output/rgb_quicklook.png'
       });
-      window.BrushApp.bindOverlayOpacity('overlayOpacity', 'opacityValue');
+
+      // فلگ آماده بودن برای ui.js
+      window.BrushApp.ready = true;
+
+      // به ui.js سیگنال بده برای وایر شدن
       window.dispatchEvent(new Event('brush:ready'));
+
       console.log('[BRUSH] bootstrap done');
     } catch (e) {
       console.error('[BRUSH] bootstrap failed', e);
@@ -208,5 +256,174 @@
       }
     }
   });
+</script>
+
+<!-- متادیتا: پر/خواندن فرم از/به لایه انتخابی -->
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  function safeGetApp() { return window.BrushApp; }
+  function safeGetIO()  { return window.BrushIO; }
+
+  const elUid   = $('polyUid');
+  const elUses  = $('polyUsesFruit');
+  const elCode  = $('polyCode');
+  const elArea  = $('polyAreaM2');
+  const elLat   = $('polyLat');
+  const elLon   = $('polyLon');
+
+  const elLabelSel    = $('polyLabelSelect');
+  const elCustomWrap  = $('customLabelWrap');
+  const elLabelCustom = $('polyLabelCustom');
+
+  const elClass = $('polyClass');
+  const elColor = $('polyColor');
+
+  const btnApply   = $('applyPropsBtn');
+  const btnSaveAll = $('savePolygonsBtn');
+
+  function showCustomIfNeeded() {
+    const v = elLabelSel?.value || '';
+    if (!elCustomWrap) return;
+    elCustomWrap.style.display = (v === '__custom__') ? 'block' : 'none';
+  }
+  elLabelSel?.addEventListener('change', showCustomIfNeeded);
+
+  function computeAreaM2(layer) {
+    try {
+      const latlngs = layer.getLatLngs();
+      const rings = (Array.isArray(latlngs[0]) && Array.isArray(latlngs[0][0])) ? latlngs : [latlngs];
+      let sum = 0;
+      for (const poly of rings) {
+        const ring = (Array.isArray(poly) && Array.isArray(poly[0])) ? poly[0] : poly;
+        sum += L.GeometryUtil.geodesicArea(ring);
+      }
+      return Math.max(0, sum);
+    } catch { return 0; }
+  }
+
+  function populateFormFromLayer(layer) {
+    if (!layer) return;
+    const p = layer._props || {};
+    // UID
+    if (elUid) elUid.value = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
+    // props شناخته‌شده
+    if (elUses)  elUses.value  = p.uses_fruit || '';
+    if (elCode)  elCode.value  = p.code || '';
+    if (elClass) elClass.value = (p.class_id != null ? p.class_id : 1);
+    if (elColor) elColor.value = p.color || '#00ff00';
+    // label (custom یا آماده)
+    const label = p.label || '';
+    if (elLabelSel) {
+      if (['veg','background',''].includes(label)) {
+        elLabelSel.value = label;
+        if (elLabelCustom) elLabelCustom.value = '';
+      } else {
+        elLabelSel.value = '__custom__';
+        if (elLabelCustom) elLabelCustom.value = label;
+      }
+      showCustomIfNeeded();
+    }
+    // مرکز تقریبی
+    try {
+      const ctr = layer.getBounds().getCenter();
+      if (elLat) elLat.value = Number(ctr.lat.toFixed(6));
+      if (elLon) elLon.value = Number(ctr.lng.toFixed(6));
+    } catch {
+      if (elLat) elLat.value = '';
+      if (elLon) elLon.value = '';
+    }
+    // مساحت
+    if (elArea) elArea.value = Math.round(computeAreaM2(layer) * 100) / 100;
+  }
+
+  function readFormToProps(layer) {
+    if (!layer) return;
+    layer._props ||= {};
+    const p = layer._props;
+
+    p.uid        = elUid?.value || p.uid || layer?.feature?.properties?.uid;
+    p.uses_fruit = elUses?.value || '';
+    p.code       = elCode?.value || '';
+
+    const sel = elLabelSel?.value || '';
+    p.label = (sel === '__custom__') ? (elLabelCustom?.value || '') : sel;
+
+    p.class_id = parseInt(elClass?.value || '1', 10) || 1;
+    p.color    = elColor?.value || '#00ff00';
+
+    try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch {}
+  }
+
+  // وقتی لایه انتخاب شد، فرم را پر کن
+  function hookOnLayerSelected() {
+    const App = safeGetApp();
+    if (!App) return;
+
+    const prev = App.onLayerSelected;
+    App.onLayerSelected = (layer) => {
+      try { prev && prev(layer); } catch {}
+      populateFormFromLayer(layer);
+    };
+
+    // اگر همین حالا هم لایه‌ای انتخاب است
+    if (App.selectedLayer) populateFormFromLayer(App.selectedLayer);
+  }
+
+  // دکمه Apply: فقط روی همین لایه
+  function wireButtons() {
+    const App = safeGetApp();
+    const IO  = safeGetIO();
+
+    btnApply?.addEventListener('click', () => {
+      const layer = IO?.current?.() || App?.selectedLayer;
+      if (!layer) return;
+      readFormToProps(layer);
+    });
+
+    // Save All: کل لایه‌ها به /api/save_polygons
+    btnSaveAll?.addEventListener('click', async () => {
+      try {
+        const cur = IO?.current?.() || App?.selectedLayer;
+        if (cur) readFormToProps(cur);
+
+        const features = [];
+        for (const ly of (App?.layers || [])) {
+          const gj = ly.toGeoJSON();
+          gj.properties = { ...(ly._props || {}) };
+          features.push(gj);
+        }
+        const fc = { type: 'FeatureCollection', features };
+        const r = await fetch('/api/save_polygons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fc),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        alert('Polygons saved.');
+      } catch (e) {
+        console.error('savePolygons:error', e);
+        alert('Save failed: ' + e);
+      }
+    });
+  }
+
+  // وایرینگ بعد از آماده‌شدن اپ
+  function readyOrWait() {
+    const App = safeGetApp();
+    if (App?.map) {
+      hookOnLayerSelected();
+      wireButtons();
+    } else {
+      window.addEventListener('brush:ready', () => {
+        hookOnLayerSelected();
+        wireButtons();
+      }, { once: true });
+    }
+  }
+
+  readyOrWait();
+})();
 </script>
 {% endblock %}
