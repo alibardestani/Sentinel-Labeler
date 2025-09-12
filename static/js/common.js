@@ -1,8 +1,10 @@
 // static/js/common.js
 (function () {
-  // =========================================================
-  // Mini helpers
-  // =========================================================
+  const DBG = true;
+  const log  = (...a) => DBG && console.debug('[COMMON]', ...a);
+  const warn = (...a) => DBG && console.warn('[COMMON]', ...a);
+  const err  = (...a) => DBG && console.error('[COMMON]', ...a);
+
   const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -17,30 +19,25 @@
     el.style.display = 'none';
   }
 
-  // =========================================================
-  // Progress modal (shared)
-  // =========================================================
   function _setProgressTitle(text) {
-    const t1 = $('#progressTitle');              // اختیاری: <div id="progressTitle">
-    const t2 = $('#progressModal .modal-title'); // یا کلاس داخل مودال
+    const t1 = $('#progressTitle');
+    const t2 = $('#progressModal .modal-title');
     if (t1) t1.textContent = text;
     if (t2 && t2 !== t1) t2.textContent = text;
+    log('progress:title', text);
   }
 
-  let pollTimer = null;  // برای /api/progress (prelabel/model)
-  let indetTimer = null; // برای حالت نامعینِ بعد از آپلود
+  let pollTimer = null;
+  let indetTimer = null;
 
   function openProgress(initialText = 'در حال پردازش… (0%)') {
     const modal = $('#progressModal');
     const bar   = $('#progressModal .progress .bar');
-    if (!modal) {
-      console.warn('[progress] #progressModal not found in DOM');
-      return;
-    }
+    if (!modal) { warn('#progressModal not found'); return; }
     showEl(modal, 'flex');
     _setProgressTitle(initialText);
     if (bar) { bar.style.transition = 'width .2s'; bar.style.width = '0%'; }
-    console.log('[progress] opened');
+    log('progress:open');
   }
 
   function closeProgress() {
@@ -49,38 +46,33 @@
     if (pollTimer)  { clearInterval(pollTimer);  pollTimer  = null; }
     if (indetTimer) { clearInterval(indetTimer); indetTimer = null; }
     hideEl(modal);
-    console.log('[progress] closed');
+    log('progress:close');
   }
 
-  // Polling برای /api/progress (پیش‌برچسب/اجرای مدل)
   function startPollingProgress() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
-    try {
-      const r = await fetch('/api/progress', { cache: 'no-store' });
-      if (!r.ok) return;
-
-      const data = await r.json();
-      const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
-      const note = (data.note ?? data.detail ?? '');
-
-      const bar = document.querySelector('#progressModal .progress .bar');
-      if (bar) bar.style.width = percent + '%';
-
-      _setProgressTitle(`در حال پردازش… (${Math.round(percent)}%)${note ? ' - ' + note : ''}`);
-
-      if (percent >= 100) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-        setTimeout(closeProgress, 500);
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/progress', { cache: 'no-store' });
+        if (!r.ok) return;
+        const data = await r.json();
+        const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+        const note = (data.note ?? data.detail ?? '');
+        const bar = document.querySelector('#progressModal .progress .bar');
+        if (bar) bar.style.width = percent + '%';
+        _setProgressTitle(`در حال پردازش… (${Math.round(percent)}%)${note ? ' - ' + note : ''}`);
+        if (percent >= 100) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          setTimeout(closeProgress, 500);
+        }
+      } catch (e) {
+        warn('progress:poll:error', e);
       }
-    } catch {
-      // تلاش بعدی...
-    }
-  }, 500);
+    }, 500);
+    log('progress:poll:start');
   }
 
-  // حالت نامعین (وقتی آپلود تموم شده ولی سرور مشغول اکسترکت/ساخت quicklook است)
   function setIndeterminate(note = 'در حال استخراج و ساخت Quicklook…') {
     _setProgressTitle(note);
     const bar = $('#progressModal .progress .bar');
@@ -94,17 +86,14 @@
       if (w <= 18) dir = +1;
       bar.style.width = w + '%';
     }, 600);
+    log('progress:indeterminate');
   }
 
-  // =========================================================
-  // Prelabel Modal (open / close / run)
-  // =========================================================
   function openPrelabel() {
     const m = $('#modal');
-    if (!m) { console.warn('[prelabel] #modal not found'); return; }
+    if (!m) { warn('[prelabel] #modal not found'); return; }
     showEl(m, 'flex');
     m.style.zIndex = 9999;
-
     const sel  = $('#prelabelMethod');
     const wrap = $('#ndviThreshWrap');
     if (sel && wrap) {
@@ -112,72 +101,59 @@
       sel.onchange = toggle;
       toggle();
     }
+    log('prelabel:open');
   }
-  function closePrelabel() { hideEl($('#modal')); }
+  function closePrelabel() {
+    hideEl($('#modal'));
+    log('prelabel:close');
+  }
 
-  // Run prelabel (polls /api/progress)
-  // ... بالای فایل همان است
-
-// Run prelabel (polls /api/progress)
-let prelabelRunning = false;
-async function runPrelabel() {
-  if (prelabelRunning) return;
-  prelabelRunning = true;
-
-  const btn = $('#prelabelRunBtn');
-  if (btn) btn.disabled = true;
-
-  // 👇 اول مودال انتخاب روش را ببند که progress پشتش نماند
-  closePrelabel();
-
-  // اجازه بده DOM یک فریم رندر شود (اختیاری ولی کمک می‌کند)
-  await new Promise(requestAnimationFrame);
-
-  openProgress('در حال پیش‌برچسب‌گذاری… (0%)');
-  startPollingProgress();
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 300_000);
-
-  try {
-    const methodEl = $('#prelabelMethod');
-    if (!methodEl) throw new Error('Prelabel control missing');
-    const method = methodEl.value;
-
-    const payload = { method };
-    if (method === 'ndvi_thresh') {
-      const v = parseFloat($('#ndviThreshold')?.value || '0.2');
-      payload.ndvi_threshold = Number.isFinite(v) ? v : 0.2;
-    }
-
-    const r = await fetch('/api/prelabel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-
-    if (r.ok) {
-      // کمی صبر تا آخرین poll نوار را به 100% برساند
-      setTimeout(() => { window.location.href = '/mask'; }, 600);
-    } else {
-      const err = await r.json().catch(() => ({ error: 'Pre-label failed' }));
-      alert(err.error || 'Pre-label failed');
+  let prelabelRunning = false;
+  async function runPrelabel() {
+    if (prelabelRunning) return;
+    prelabelRunning = true;
+    const btn = $('#prelabelRunBtn');
+    if (btn) btn.disabled = true;
+    closePrelabel();
+    await new Promise(requestAnimationFrame);
+    openProgress('در حال پیش‌برچسب‌گذاری… (0%)');
+    startPollingProgress();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 300_000);
+    try {
+      const methodEl = $('#prelabelMethod');
+      if (!methodEl) throw new Error('Prelabel control missing');
+      const method = methodEl.value;
+      const payload = { method };
+      if (method === 'ndvi_thresh') {
+        const v = parseFloat($('#ndviThreshold')?.value || '0.2');
+        payload.ndvi_threshold = Number.isFinite(v) ? v : 0.2;
+      }
+      const r = await fetch('/api/prelabel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      log('prelabel:POST', payload, 'status=', r.status);
+      if (r.ok) {
+        setTimeout(() => { window.location.href = '/mask'; }, 600);
+      } else {
+        const j = await r.json().catch(() => ({ error: 'Pre-label failed' }));
+        alert(j.error || 'Pre-label failed');
+        closeProgress();
+      }
+    } catch (e) {
+      alert(e?.name === 'AbortError' ? 'Request timed out' : ('Network error: ' + (e?.message || e)));
       closeProgress();
+      err('prelabel:error', e);
+    } finally {
+      clearTimeout(timer);
+      prelabelRunning = false;
+      if (btn) btn.disabled = false;
     }
-  } catch (e) {
-    alert(e?.name === 'AbortError' ? 'Request timed out' : ('Network error: ' + (e?.message || e)));
-    closeProgress();
-  } finally {
-    clearTimeout(timer);
-    prelabelRunning = false;
-    if (btn) btn.disabled = false;
   }
-}
 
-  // =========================================================
-  // Model: info / upload / run
-  // =========================================================
   async function refreshModelInfo() {
     const box = $('#modelInfo');
     if (!box) return;
@@ -191,8 +167,10 @@ async function runPrelabel() {
         const bands = (info.bands || []).join(', ');
         box.textContent = `Loaded • providers: ${providers} • tile=${info.tile_size} • bands=${bands}`;
       }
-    } catch {
+      log('model:info', info);
+    } catch (e) {
       box.textContent = 'Model info error';
+      warn('model:info:error', e);
     }
   }
 
@@ -206,6 +184,7 @@ async function runPrelabel() {
       try {
         const r = await fetch('/api/model_upload', { method: 'POST', body: fd });
         const j = await r.json().catch(() => ({}));
+        log('model:upload:resp', r.status, j);
         if (r.ok) {
           alert('مدل بارگذاری شد.');
           refreshModelInfo();
@@ -214,6 +193,7 @@ async function runPrelabel() {
         }
       } catch (e) {
         alert('Network error: ' + (e?.message || e));
+        err('model:upload:error', e);
       }
     });
 
@@ -222,6 +202,7 @@ async function runPrelabel() {
       startPollingProgress();
       try {
         const r = await fetch('/api/run_model', { method: 'POST' });
+        log('model:run:status', r.status);
         if (r.ok) {
           setTimeout(() => location.href = '/mask', 450);
         } else {
@@ -232,18 +213,17 @@ async function runPrelabel() {
       } catch (e) {
         alert('Network error: ' + (e?.message || e));
         closeProgress();
+        err('model:run:error', e);
       }
     });
   }
 
-  // =========================================================
-  // Sentinel-2 ZIP upload with REAL progress (XHR)
-  // =========================================================
   function updateProgressModal(percent, note) {
     const p = Math.max(0, Math.min(100, percent || 0));
     const bar = $('#progressModal .progress .bar');
     if (bar) bar.style.width = p + '%';
     _setProgressTitle(`در حال بارگذاری… (${Math.round(p)}%)${note ? ' - ' + note : ''}`);
+    log('upload:progress', { p, note });
   }
 
   async function uploadS2ZipWithProgress(fileInput) {
@@ -259,7 +239,7 @@ async function runPrelabel() {
     xhr.open('POST', '/api/upload_safe_zip', true);
 
     xhr.upload.onprogress = (e) => {
-      if (!$('#progressModal')) return; // اگر کاربر صفحه را ترک کرد
+      if (!$('#progressModal')) return;
       if (e.lengthComputable) {
         updateProgressModal((e.loaded / e.total) * 100, 'آپلود');
       } else {
@@ -267,22 +247,25 @@ async function runPrelabel() {
       }
     };
 
-    // بعد از اتمام آپلود تا وقتی سرور پاسخ را برگرداند
-    xhr.upload.onload = () => { setIndeterminate('در حال استخراج و ساخت Quicklook…'); };
+    xhr.upload.onload = () => {
+      setIndeterminate('در حال استخراج و ساخت Quicklook…');
+    };
 
     xhr.onerror = () => {
       closeProgress();
       alert('خطا در شبکه هنگام آپلود');
+      err('upload:xhr:error');
     };
 
     xhr.onload = async () => {
       closeProgress();
       let j = {};
       try { j = JSON.parse(xhr.responseText || '{}'); } catch {}
+      log('upload:xhr:done', xhr.status, j);
       if (xhr.status >= 200 && xhr.status < 300 && j.ok) {
         window.dispatchEvent(new CustomEvent('s2:scene-updated', { detail: j }));
         if (window.reloadBackdropAndMaskAfterUpload) {
-          await window.reloadBackdropAndMaskAfterUpload();
+          try { await window.reloadBackdropAndMaskAfterUpload(); } catch (e) { warn('reloadBackdrop error', e); }
         }
         alert('صحنه با موفقیت بارگذاری و پردازش شد ✅');
       } else {
@@ -291,6 +274,7 @@ async function runPrelabel() {
     };
 
     xhr.send(fd);
+    log('upload:xhr:send', { name: file.name, size: file.size });
   }
 
   function attachZipUploader(inputId, buttonId) {
@@ -298,11 +282,9 @@ async function runPrelabel() {
     const btn = document.getElementById(buttonId);
     if (!btn) return;
     btn.addEventListener('click', () => uploadS2ZipWithProgress(inp));
+    log('uploader:wired', { inputId, buttonId });
   }
 
-  // =========================================================
-  // Overlay opacity control (right sidebar slider)
-  // =========================================================
   function wireOverlayOpacity() {
     const overlayRange = $('#overlayOpacity');
     const overlayVal   = $('#opacityValue');
@@ -310,33 +292,26 @@ async function runPrelabel() {
     const apply = () => {
       const v = (overlayRange.valueAsNumber || 60) / 100;
       if (overlayVal) overlayVal.textContent = v.toFixed(2);
-      // window.setOverlayOpacity?.(v);
+      log('overlay:ui:value', v);
     };
     overlayRange.addEventListener('input', apply);
     apply();
   }
 
-  // =========================================================
-  // Expose + boot
-  // =========================================================
   window.openPrelabel  = openPrelabel;
   window.closePrelabel = closePrelabel;
   window.runPrelabel   = runPrelabel;
   window.closeProgress = closeProgress;
 
   window.addEventListener('DOMContentLoaded', () => {
-    // اتصال XHR-progress
-    attachZipUploader('s2Zip', 'uploadS2ZipBtn');          // صفحهٔ polygon/base
-    attachZipUploader('s2ZipMask', 'uploadS2ZipBtnMask');  // اگر در mask هم ورودی جدا داری
-
+    attachZipUploader('s2Zip', 'uploadS2ZipBtn');
+    attachZipUploader('s2ZipMask', 'uploadS2ZipBtnMask');
     wireModelButtons();
     wireOverlayOpacity();
     refreshModelInfo();
-
-    console.log('[common] DOM ready');
-    // چک سریع حضور مودال:
+    log('DOM ready');
     if (!$('#progressModal')) {
-      console.warn('[progress] #progressModal missing — مودال را به HTML اضافه کن.');
+      warn('[progress] #progressModal missing — add modal HTML to page');
     }
   });
 

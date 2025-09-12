@@ -5,29 +5,103 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 <style>
-  .map-wrap { height: calc(100vh - 110px); }
-  #map { position: relative; height: 100%; border-radius: 14px; overflow: hidden; border: 1px solid #1c2435; }
-  .leaflet-top, .leaflet-bottom, .leaflet-control-container { z-index: 1100; }
-
-  #maskCanvas, #cursorCanvas{
-    position:absolute; inset:0; width:100%; height:100%;
-    pointer-events:none; z-index:1200;
+  .map-wrap {
+    height: calc(100vh - 110px);
   }
-  #cursorCanvas{ z-index:1201; }
-  body.tool-brush #maskCanvas{ pointer-events:auto; }
+
+  #map {
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #1c2435;
+  }
+
+  .leaflet-top,
+  .leaflet-bottom,
+  .leaflet-control-container {
+    z-index: 1100;
+  }
+
+  #maskCanvas,
+  #cursorCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1200;
+  }
+
+  #cursorCanvas {
+    z-index: 1201;
+  }
+
+  body.tool-brush #maskCanvas {
+    pointer-events: auto;
+  }
 
   .hud {
-    display:grid; gap:8px;
+    display: grid;
+    gap: 8px;
     grid-template-columns: 1fr auto;
-    align-items:center;
-    padding:8px; border:1px solid var(--line);
+    align-items: center;
+    padding: 8px;
+    border: 1px solid var(--line);
     background: var(--pane);
     border-radius: 10px;
   }
-  .hud .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .chip{ display:inline-flex; align-items:center; gap:6px; background:#101728; border:1px solid #1e2639; padding:4px 8px; border-radius:999px; }
-  .num{ font-variant-numeric: tabular-nums; }
-  .kbd{ background:#0f1626; border:1px solid #23304a; padding:0 6px; border-radius:6px; font-size:12px; }
+
+  .hud .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #101728;
+    border: 1px solid #1e2639;
+    padding: 4px 8px;
+    border-radius: 999px;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kbd {
+    background: #0f1626;
+    border: 1px solid #23304a;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+
+  /* وکتورها بالاتر از کانواس‌ها */
+  #map .leaflet-overlay-pane,
+  #map .leaflet-vector-pane {
+    z-index: 1302 !important;
+  }
+
+  /* کنترل‌ها همچنان بالاتر از همه */
+  .leaflet-top,
+  .leaflet-bottom,
+  .leaflet-control-container {
+    z-index: 1304 !important;
+  }
+
+  /* کانواس‌ها کمی پایین‌تر */
+  #maskCanvas {
+    z-index: 1300;
+  }
+
+  #cursorCanvas {
+    z-index: 1301;
+  }
 </style>
 {% endblock %}
 
@@ -84,7 +158,9 @@
     <button id="savePng2" class="btn primary">Save PNG (S)</button>
   </div>
   <div class="muted" style="font-size:12px;margin-top:6px;">
-    Shortcuts: <span class="kbd">B</span>/<span class="kbd">V</span> • <span class="kbd">[</span>/<span class="kbd">]</span> size • <span class="kbd">E</span> erase • <span class="kbd">N</span>/<span class="kbd">P</span> next/prev • <span class="kbd">L</span> done • <span class="kbd">S</span> save
+    Shortcuts: <span class="kbd">B</span>/<span class="kbd">V</span> • <span class="kbd">[</span>/<span
+      class="kbd">]</span> size • <span class="kbd">E</span> erase • <span class="kbd">N</span>/<span
+      class="kbd">P</span> next/prev • <span class="kbd">L</span> done • <span class="kbd">S</span> save
   </div>
 </div>
 
@@ -96,7 +172,8 @@
     <button id="loadPolygonsBtn2" class="btn">Upload</button>
   </div>
   <div class="muted" style="font-size:12px">
-    Auto-loads from <code>/api/polygons</code>. Features ideally have <code>tile_id</code>, <code>code</code>, <code>uses_fruit</code>, <code>uid</code>.
+    Auto-loads from <code>/api/polygons</code>. Features ideally have <code>tile_id</code>, <code>code</code>,
+    <code>uses_fruit</code>, <code>uid</code>.
   </div>
 </div>
 {% endblock %}
@@ -104,5 +181,32 @@
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
-<script src="{{ url_for('static', filename='js/brush_only.js') }}" defer></script>
+
+<script src="{{ url_for('static', filename='js/brush/core.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/brush/io.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
+
+<script>
+  window.addEventListener('DOMContentLoaded', async () => {
+    console.log('[BRUSH] bootstrap start');
+    try {
+      await window.BrushApp.init({
+        mapId: 'map',
+        maskId: 'maskCanvas',
+        cursorId: 'cursorCanvas',
+        enforceClip: true,
+        overlayBoundsURL: '/api/s2_bounds_wgs84',
+        overlayImageURL: '/api/output/rgb_quicklook.png'
+      });
+      window.BrushApp.bindOverlayOpacity('overlayOpacity', 'opacityValue');
+      window.dispatchEvent(new Event('brush:ready'));
+      console.log('[BRUSH] bootstrap done');
+    } catch (e) {
+      console.error('[BRUSH] bootstrap failed', e);
+      if (window.BrushApp.map) {
+        window.BrushApp.map.setView([30.0, 52.0], 12);
+      }
+    }
+  });
+</script>
 {% endblock %}
