@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block title %}Brush — Sentinel Labeler{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<style>
+  .map-wrap { height: calc(100vh - 110px); }
+  #map { position: relative; height: 100%; border-radius: 14px; overflow: hidden; border: 1px solid #1c2435; }
+  .leaflet-top, .leaflet-bottom, .leaflet-control-container { z-index: 1100; }
+
+  #maskCanvas, #cursorCanvas{
+    position:absolute; inset:0; width:100%; height:100%;
+    pointer-events:none; z-index:1200;
+  }
+  #cursorCanvas{ z-index:1201; }
+  body.tool-brush #maskCanvas{ pointer-events:auto; }
+
+  .hud {
+    display:grid; gap:8px;
+    grid-template-columns: 1fr auto;
+    align-items:center;
+    padding:8px; border:1px solid var(--line);
+    background: var(--pane);
+    border-radius: 10px;
+  }
+  .hud .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .chip{ display:inline-flex; align-items:center; gap:6px; background:#101728; border:1px solid #1e2639; padding:4px 8px; border-radius:999px; }
+  .num{ font-variant-numeric: tabular-nums; }
+  .kbd{ background:#0f1626; border:1px solid #23304a; padding:0 6px; border-radius:6px; font-size:12px; }
+</style>
+{% endblock %}
+
+{% block main %}
+<div class="map-wrap">
+  <div id="map" class="map">
+    <canvas id="maskCanvas"></canvas>
+    <canvas id="cursorCanvas"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block right_panel %}
+{{ super() }}
+
+<!-- HUD: tile & progress -->
+<div class="section">
+  <div class="hud">
+    <div class="row">
+      <span class="chip">Tile: <b id="hudTile">-</b></span>
+      <span class="chip">Poly: <span id="hudIndex" class="num">0</span>/<span id="hudTotal" class="num">0</span></span>
+      <span class="chip">Done: <span id="hudDone" class="num">0</span></span>
+    </div>
+    <div class="row">
+      <button id="btnPrev" class="btn">Prev (P)</button>
+      <button id="btnNext" class="btn">Next (N)</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mode -->
+<div class="section">
+  <div class="muted">Mode</div>
+  <div class="toolbar" style="gap:8px; flex-wrap:wrap">
+    <button id="modePanBtn2" class="btn">Pan (V)</button>
+    <button id="modeBrushBtn2" class="btn primary">Brush (B)</button>
+  </div>
+</div>
+
+<!-- Brush -->
+<div class="section">
+  <div class="muted">Brush</div>
+  <div class="toolbar" style="gap:10px; flex-wrap:wrap; align-items:center">
+    <label>Size
+      <input id="brushSize2" type="range" min="2" max="128" step="1" value="24" />
+      <span id="brushSizeVal2">24 px</span>
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;">
+      <input id="eraseChk2" type="checkbox" />
+      Erase (E)
+    </label>
+    <button id="clearMask2" class="btn">Clear</button>
+    <button id="btnMarkDone" class="btn">Mark done (L)</button>
+    <button id="savePng2" class="btn primary">Save PNG (S)</button>
+  </div>
+  <div class="muted" style="font-size:12px;margin-top:6px;">
+    Shortcuts: <span class="kbd">B</span>/<span class="kbd">V</span> • <span class="kbd">[</span>/<span class="kbd">]</span> size • <span class="kbd">E</span> erase • <span class="kbd">N</span>/<span class="kbd">P</span> next/prev • <span class="kbd">L</span> done • <span class="kbd">S</span> save
+  </div>
+</div>
+
+<!-- Polygons -->
+<div class="section">
+  <div class="muted">Polygons</div>
+  <div class="toolbar" style="gap:8px; flex-wrap:wrap">
+    <input type="file" id="polyUpload2" accept=".geojson,.json,.zip" />
+    <button id="loadPolygonsBtn2" class="btn">Upload</button>
+  </div>
+  <div class="muted" style="font-size:12px">
+    Auto-loads from <code>/api/polygons</code>. Features ideally have <code>tile_id</code>, <code>code</code>, <code>uses_fruit</code>, <code>uid</code>.
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
+<script src="{{ url_for('static', filename='js/brush_only.js') }}" defer></script>
+{% endblock %}

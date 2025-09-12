@@ -8,6 +8,9 @@ from urllib.parse import urlparse, urljoin
 
 from config import settings
 from routes.api import api_bp  # mounts at /api
+from pathlib import Path
+
+from flask import Flask, request, send_file, abort
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = "change-this-in-prod-please"
@@ -15,6 +18,8 @@ app.config.update(
     OUTPUT_DIR=str(settings.OUTPUT_DIR),
     S2_RGB_TIF=str(settings.S2_RGB_TIF),
 )
+
+MASK_ROOT = Path("masks")
 
 DEMO_EMAIL = "demo@example.com"
 DEMO_PASS  = "demo1234"
@@ -76,6 +81,42 @@ def index():
 @login_required
 def polygon():
     return render_template("polygon.html")
+
+@app.route("/brush")
+def brush():
+    return render_template("brush.html")
+
+@app.post("/api/masks/save")
+def api_masks_save():
+    tile_id = request.args.get('tile_id', '')
+    uid = request.args.get('uid', '')
+    f = request.files.get('file')
+    if not (tile_id and uid and f):
+        return {"error":"missing tile_id/uid/file"}, 400
+
+    safe_tile = "".join(c if c.isalnum() or c in "._-|" else "_" for c in tile_id)[:128]
+    safe_uid  = "".join(c if c.isalnum() or c in "._-|" else "_" for c in uid)[:128]
+
+    outdir = MASK_ROOT / safe_tile
+    outdir.mkdir(parents=True, exist_ok=True)
+    outpath = outdir / f"{safe_uid}.png"
+    f.save(outpath)
+    return {"ok": True, "path": str(outpath)}
+
+@app.get("/api/masks/get")
+def api_masks_get():
+    tile_id = request.args.get('tile_id', '')
+    uid = request.args.get('uid', '')
+    if not (tile_id and uid):
+        return abort(400)
+
+    safe_tile = "".join(c if c.isalnum() or c in "._-|" else "_" for c in tile_id)[:128]
+    safe_uid  = "".join(c if c.isalnum() or c in "._-|" else "_" for c in uid)[:128]
+    path = MASK_ROOT / safe_tile / f"{safe_uid}.png"
+    if not path.exists():
+        # اجازه بده فرانت بفهمه ماسکی نیست
+        return abort(404)
+    return send_file(path, mimetype="image/png")
 
 app.register_blueprint(api_bp, url_prefix="/api")
 
