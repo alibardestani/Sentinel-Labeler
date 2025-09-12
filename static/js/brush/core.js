@@ -534,20 +534,42 @@ console.log("[BRUSH:core] loaded");
   };
 
   App.setMode = function setMode(mode) {
-    if (!App.map || !App.map.dragging) { return; }
+    if (!App.map || !App.map.dragging) return;
+
     const prev = App.MODE;
-    App.MODE = mode === 'brush' ? 'brush' : 'pan';
-    const isBrush = App.MODE === 'brush';
+    App.MODE = (mode === 'brush') ? 'brush' : 'pan';
+    const isBrush = (App.MODE === 'brush');
+
+    // کلاس بدنه برای کنترل pointer-events روی ماسک سراسری
     document.body.classList.toggle('tool-brush', isBrush);
+
+    // تضمین وضعیت pointer-events روی بوم محلی (اگر داری با localMaskCanvas می‌کشی)
+    try {
+      if (App.localMaskCanvas) {
+        App.localMaskCanvas.style.pointerEvents = isBrush ? 'auto' : 'none';
+      }
+    } catch { }
+
+    // توقف هرگونه استروک نیمه‌تمام
+    try {
+      // اگر متغیر painting در اسکوپ ماژول هست، خاموشش کن
+      // (اگر بیرون از این تابع تعریف شده، این بلاک کمک می‌کند از حلقه‌ی کشیدن خارج بشی)
+      window.__BRUSH_PAINTING__ = false;
+    } catch { }
+
+    // سوییچ رفتار نقشه
     if (isBrush) {
       App.map.dragging.disable();
-      if (!App.selectedLayer) console.warn('Brush ON but no polygon selected yet');
-      try { positionLocalMask(); } catch (e) { console.warn('positionLocalMask failed', e); }
-      try { App._redrawCursorPreview?.(); } catch (e) { }
+      try { App._redrawCursorPreview?.(); } catch { }
     } else {
       App.map.dragging.enable();
-      clearCursor();
+      // اگر با wheel/boxZoom قبلاً دستکاری شده، برگردون
+      try { App.map.scrollWheelZoom.enable(); } catch { }
+      try { App.map.boxZoom.enable(); } catch { }
+      // کرسر کمکی پاک شود
+      try { (App.clearCursor || function () { }).call(null); } catch { }
     }
+
     console.log('mode:change', { from: prev, to: App.MODE });
   };
 
