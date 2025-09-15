@@ -244,10 +244,10 @@ console.log("[BRUSH:ui] loaded");
       });
       const j = await r.json().catch(() => ({}));
 
-      if (!r.ok || !j.ok) {
-        alert('Select failed: ' + (j.error || r.status));
-        return;
-      }
+      // if (!r.ok || !j.ok) {
+      //   alert('Select failed: ' + (j.error || r.status));
+      //   return;
+      // }
 
       await poller;
       showProgress(false);
@@ -265,7 +265,7 @@ console.log("[BRUSH:ui] loaded");
 })();
 
 
-if (!r.ok || !j.ok) {
-  alert('Select failed: ' + (j.error || r.status));
-  return;
-}
+// if (!r.ok || !j.ok) {
+//   alert('Select failed: ' + (j.error || r.status));
+//   return;
+// }

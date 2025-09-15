@@ -108,6 +108,13 @@ console.log('[BRUSH:io] loaded');
     log('reloadPolygonsForScene:done', { layers: App.layers.length });
   }
 
+  App.currentTileId = function () {
+    return (App._scene && App._scene.tile) ? App._scene.tile : 'unknown';
+  };
+  App.layerUid = function (layer) {
+    return layer?._props?.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
+  };
+
   // ---------------- Navigation ----------------
   function setIndex(i) {
     if (!App.layers.length) { warn('setIndex:no-layers'); return; }

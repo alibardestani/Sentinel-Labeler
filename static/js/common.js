@@ -1,11 +1,11 @@
 // static/js/common.js
 (function () {
   const DBG = true;
-  const log  = (...a) => DBG && console.debug('[COMMON]', ...a);
+  const log = (...a) => DBG && console.debug('[COMMON]', ...a);
   const warn = (...a) => DBG && console.warn('[COMMON]', ...a);
-  const err  = (...a) => DBG && console.error('[COMMON]', ...a);
+  const err = (...a) => DBG && console.error('[COMMON]', ...a);
 
-  const $  = (sel, root = document) => root.querySelector(sel);
+  const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function showEl(el, display = 'flex') {
@@ -17,6 +17,14 @@
     if (!el) return;
     el.classList.add('hidden');
     el.style.display = 'none';
+  }
+
+  async function loadCurrentSceneMeta() {
+    try {
+      const r = await fetch('/api/scenes/current', { cache: 'no-store' });
+      const j = await r.json().catch(() => ({}));
+      App._scene = j?.scene || null; // { id, name, tile, date, ... }
+    } catch (e) { log('scene:current:error', e); App._scene = null; }
   }
 
   function _setProgressTitle(text) {
@@ -32,7 +40,7 @@
 
   function openProgress(initialText = 'در حال پردازش… (0%)') {
     const modal = $('#progressModal');
-    const bar   = $('#progressModal .progress .bar');
+    const bar = $('#progressModal .progress .bar');
     if (!modal) { warn('#progressModal not found'); return; }
     showEl(modal, 'flex');
     _setProgressTitle(initialText);
@@ -43,7 +51,7 @@
   function closeProgress() {
     const modal = $('#progressModal');
     if (!modal) return;
-    if (pollTimer)  { clearInterval(pollTimer);  pollTimer  = null; }
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (indetTimer) { clearInterval(indetTimer); indetTimer = null; }
     hideEl(modal);
     log('progress:close');
@@ -94,7 +102,7 @@
     if (!m) { warn('[prelabel] #modal not found'); return; }
     showEl(m, 'flex');
     m.style.zIndex = 9999;
-    const sel  = $('#prelabelMethod');
+    const sel = $('#prelabelMethod');
     const wrap = $('#ndviThreshWrap');
     if (sel && wrap) {
       const toggle = () => { wrap.style.display = (sel.value === 'ndvi_thresh') ? 'flex' : 'none'; };
@@ -260,7 +268,7 @@
     xhr.onload = async () => {
       closeProgress();
       let j = {};
-      try { j = JSON.parse(xhr.responseText || '{}'); } catch {}
+      try { j = JSON.parse(xhr.responseText || '{}'); } catch { }
       log('upload:xhr:done', xhr.status, j);
       if (xhr.status >= 200 && xhr.status < 300 && j.ok) {
         window.dispatchEvent(new CustomEvent('s2:scene-updated', { detail: j }));
@@ -287,7 +295,7 @@
 
   function wireOverlayOpacity() {
     const overlayRange = $('#overlayOpacity');
-    const overlayVal   = $('#opacityValue');
+    const overlayVal = $('#opacityValue');
     if (!overlayRange) return;
     const apply = () => {
       const v = (overlayRange.valueAsNumber || 60) / 100;
@@ -298,9 +306,9 @@
     apply();
   }
 
-  window.openPrelabel  = openPrelabel;
+  window.openPrelabel = openPrelabel;
   window.closePrelabel = closePrelabel;
-  window.runPrelabel   = runPrelabel;
+  window.runPrelabel = runPrelabel;
   window.closeProgress = closeProgress;
 
   window.addEventListener('DOMContentLoaded', () => {
@@ -341,7 +349,7 @@
         const cj = await cr.json();
         const cur = cj?.scene?.id;
         if (cur) sel.value = cur;
-      } catch {}
+      } catch { }
     } catch (e) {
       console.error('[scenes] list failed', e);
     }
@@ -358,10 +366,10 @@
         body: JSON.stringify({ scene_id: id })
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) {
-        alert('Select failed: ' + (j.error || r.status));
-        return;
-      }
+      // if (!r.ok || !j.ok) {
+      //   alert('Select failed: ' + (j.error || r.status));
+      //   return;
+      // }
 
       // Hot-swap بدون ری‌لود صفحه:
       try {
@@ -376,7 +384,7 @@
           } else {
             window.BrushApp.overlay = L.imageOverlay(url, [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]], { opacity: 0.6 }).addTo(map);
           }
-          try { map.fitBounds([[b.lat_min, b.lon_min],[b.lat_max, b.lon_max]]); } catch {}
+          try { map.fitBounds([[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]]); } catch { }
           if (window.BrushApp.rebuildClipPath) window.BrushApp.rebuildClipPath();
           if (window.BrushIO?.reloadPolygonsForScene) await window.BrushIO.reloadPolygonsForScene();
         } else {
