@@ -317,3 +317,82 @@
 
   window.addEventListener('beforeunload', closeProgress);
 })();
+
+// --- Scene dropdown wiring (works on every page because common.js is global) ---
+(function wireSceneSelectGlobal() {
+  const sel = document.getElementById('sceneSelect');
+  const btn = document.getElementById('sceneApplyBtn');
+  if (!sel || !btn) return;
+
+  async function refreshList() {
+    try {
+      const r = await fetch('/api/scenes/list', { cache: 'no-store' });
+      const j = await r.json();
+      if (!j?.items) return;
+      sel.innerHTML = '';
+      j.items.forEach(it => {
+        const opt = document.createElement('option');
+        opt.value = it.id;
+        opt.textContent = `${it.tile || '—'} | ${it.date || '—'} | ${it.name}`;
+        sel.appendChild(opt);
+      });
+      try {
+        const cr = await fetch('/api/scenes/current', { cache: 'no-store' });
+        const cj = await cr.json();
+        const cur = cj?.scene?.id;
+        if (cur) sel.value = cur;
+      } catch {}
+    } catch (e) {
+      console.error('[scenes] list failed', e);
+    }
+  }
+
+  btn.addEventListener('click', async () => {
+    const id = sel.value;
+    if (!id) return;
+    btn.disabled = true; const prev = btn.textContent; btn.textContent = 'Loading…';
+    try {
+      const r = await fetch('/api/scenes/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scene_id: id })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        alert('Select failed: ' + (j.error || r.status));
+        return;
+      }
+
+      // Hot-swap بدون ری‌لود صفحه:
+      try {
+        const bR = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
+        const b = await bR.json();
+        if (window.BrushApp?.map) {
+          const map = window.BrushApp.map;
+          const url = '/api/output/rgb_quicklook.png?t=' + Date.now();
+          if (window.BrushApp.overlay) {
+            window.BrushApp.overlay.setUrl(url);
+            window.BrushApp.overlay.setBounds([[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]]);
+          } else {
+            window.BrushApp.overlay = L.imageOverlay(url, [[b.lat_min, b.lon_min], [b.lat_max, b.lon_max]], { opacity: 0.6 }).addTo(map);
+          }
+          try { map.fitBounds([[b.lat_min, b.lon_min],[b.lat_max, b.lon_max]]); } catch {}
+          if (window.BrushApp.rebuildClipPath) window.BrushApp.rebuildClipPath();
+          if (window.BrushIO?.reloadPolygonsForScene) await window.BrushIO.reloadPolygonsForScene();
+        } else {
+          // اگر صفحه polygon است و BrushApp نداریم، یک ری‌لود ساده
+          location.reload();
+        }
+      } catch {
+        location.reload();
+      }
+    } finally {
+      btn.disabled = false; btn.textContent = prev;
+    }
+  });
+
+  // اختیاری: با تغییر انتخاب هم بزن
+  sel.addEventListener('change', () => btn.click());
+
+  refreshList();
+})();
