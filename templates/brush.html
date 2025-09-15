@@ -132,6 +132,129 @@
 <script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
 
 <script>
+(function () {
+  const log  = (...a) => console.debug('[BRUSH:UI]', ...a);
+  const warn = (...a) => console.warn('[BRUSH:UI]', ...a);
+  const err  = (...a) => console.error('[BRUSH:UI]', ...a);
+
+  // ابزار کمکی برای گرفتن المنت‌ها
+  const $ = (id) => document.getElementById(id);
+
+  async function wireOnceReady() {
+    // منتظر بمون تا BrushApp آماده بشه
+    for (let i = 0; i < 200; i++) {
+      if (window.BrushApp && BrushApp.map && BrushApp.maskCanvas) break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    const App = window.BrushApp;
+    if (!App) { err('BrushApp not found'); return; }
+
+    // دکمه‌ها / کنترل‌ها
+    const btnPan     = $('modePanBtn2');
+    const btnBrush   = $('modeBrushBtn2');
+    const rngSize    = $('brushSize2');
+    const lblSize    = $('brushSizeVal2');
+    const chkErase   = $('eraseChk2');
+    const btnClear   = $('clearMask2');
+    const btnSavePNG = $('savePng2');     // اگر PNG ذخیره محلی داری
+    const btnDone    = $('btnMarkDone');  // اگر کاری براش تعریف کردی
+
+    // --- رویدادها ---
+
+    // حالت Pan
+    btnPan?.addEventListener('click', () => {
+      App.setMode('pan');
+      btnPan?.classList.add('primary');
+      btnBrush?.classList.remove('primary');
+      log('mode->pan', App._diag?.());
+    });
+
+    // حالت Brush
+    btnBrush?.addEventListener('click', () => {
+      App.setMode('brush');
+      btnBrush?.classList.add('primary');
+      btnPan?.classList.remove('primary');
+      // اطمینان از فعال شدن کلیک‌پذیری بوم
+      const pe = App.maskCanvas?.style.pointerEvents;
+      log('mode->brush', { pointerEvents: pe }, App._diag?.());
+      if (pe !== 'auto') {
+        warn('maskCanvas not clickable; fixing...');
+        try { App.maskCanvas.style.pointerEvents = 'auto'; } catch {}
+      }
+    });
+
+    // سایز براش
+    rngSize?.addEventListener('input', () => {
+      const v = parseInt(rngSize.value || '24', 10);
+      App.setBrushSize(v);
+      if (lblSize) lblSize.textContent = `${v} px`;
+      log('brush:size', v);
+    });
+
+    // Erase
+    chkErase?.addEventListener('change', () => {
+      App.setErase(!!chkErase.checked);
+      log('brush:erase', !!chkErase.checked);
+    });
+
+    // Clear (پاک کردن ماسک روی صفحه و فول‌رز)
+    btnClear?.addEventListener('click', () => {
+      App.clearMask?.();
+      log('mask:cleared');
+    });
+
+    // Save (ارسال ماسک باینری به سرور)
+    btnSavePNG?.addEventListener('click', async () => {
+      try {
+        await App.saveMask?.();
+      } catch (e) {
+        err('saveMask:error', e);
+        alert('Save failed: ' + e);
+      }
+    });
+
+    // دکمهٔ Done (اختیاری)
+    btnDone?.addEventListener('click', () => {
+      log('mark:done (no-op here)');
+      // اگر منطق خاصی داری اینجا صدا بزن
+    });
+
+    // شورتکات‌ها: V/B برای حالت، [ / ] برای سایز، E برای erase
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT','TEXTAREA','SELECT'].includes((e.target?.tagName || '').toUpperCase())) return;
+      if (e.key === 'v' || e.key === 'V') {
+        btnPan?.click();
+      } else if (e.key === 'b' || e.key === 'B') {
+        btnBrush?.click();
+      } else if (e.key === '[') {
+        const v = Math.max(2, (parseInt(rngSize?.value || '24', 10) - 1));
+        if (rngSize) rngSize.value = String(v);
+        rngSize?.dispatchEvent(new Event('input'));
+      } else if (e.key === ']') {
+        const v = Math.min(256, (parseInt(rngSize?.value || '24', 10) + 1));
+        if (rngSize) rngSize.value = String(v);
+        rngSize?.dispatchEvent(new Event('input'));
+      } else if (e.key === 'e' || e.key === 'E') {
+        if (chkErase) {
+          chkErase.checked = !chkErase.checked;
+          chkErase.dispatchEvent(new Event('change'));
+        }
+      }
+    });
+
+    // مقدار اولیهٔ کنترل‌ها
+    if (rngSize) rngSize.dispatchEvent(new Event('input'));
+    if (chkErase) chkErase.dispatchEvent(new Event('change'));
+
+    // لاگ پایانی
+    log('UI wired ✔', App._diag?.());
+  }
+
+  document.addEventListener('DOMContentLoaded', wireOnceReady);
+})();
+</script>
+
+<script>
   window.addEventListener('DOMContentLoaded', async () => {
     try {
       await window.BrushApp.init({
