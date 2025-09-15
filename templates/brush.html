@@ -5,19 +5,90 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 <style>
-  .map-wrap{height:calc(100vh - 110px)}
-  #map{position:relative;height:100%;border-radius:14px;overflow:hidden;border:1px solid #1c2435;background:#0d1320}
-  #maskCanvas,#cursorCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  #maskCanvas{z-index:1306}
-  #cursorCanvas{z-index:1307}
-  body.tool-brush #maskCanvas{pointer-events:auto}
-  .leaflet-top,.leaflet-bottom,.leaflet-control-container{z-index:1400}
-  .section .toolbar label{display:grid;gap:6px}
-  .hud{display:grid;gap:8px;grid-template-columns:1fr auto;align-items:center;padding:8px;border:1px solid var(--line);background:var(--pane);border-radius:10px}
-  .hud .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .chip{display:inline-flex;align-items:center;gap:6px;background:#101728;border:1px solid #1e2639;padding:4px 8px;border-radius:999px}
-  .num{font-variant-numeric:tabular-nums}
-  .kbd{background:#0f1626;border:1px solid #23304a;padding:0 6px;border-radius:6px;font-size:12px}
+  .map-wrap {
+    height: calc(100vh - 110px)
+  }
+
+  #map {
+    position: relative;
+    height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #1c2435;
+    background: #0d1320
+  }
+
+  #maskCanvas,
+  #cursorCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none
+  }
+
+  #maskCanvas {
+    z-index: 1306
+  }
+
+  #cursorCanvas {
+    z-index: 1307
+  }
+
+  body.tool-brush #maskCanvas {
+    pointer-events: auto
+  }
+
+  .leaflet-top,
+  .leaflet-bottom,
+  .leaflet-control-container {
+    z-index: 1400
+  }
+
+  .section .toolbar label {
+    display: grid;
+    gap: 6px
+  }
+
+  .hud {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid var(--line);
+    background: var(--pane);
+    border-radius: 10px
+  }
+
+  .hud .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #101728;
+    border: 1px solid #1e2639;
+    padding: 4px 8px;
+    border-radius: 999px
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums
+  }
+
+  .kbd {
+    background: #0f1626;
+    border: 1px solid #23304a;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 12px
+  }
 </style>
 {% endblock %}
 
@@ -117,8 +188,10 @@
     <button id="savePng2" class="btn primary">Save PNG (S)</button>
   </div>
   <div class="muted" style="font-size:12px;margin-top:6px">
-    Shortcuts: <span class="kbd">B</span>/<span class="kbd">V</span> • <span class="kbd">[</span>/<span class="kbd">]</span> size •
-    <span class="kbd">E</span> erase • <span class="kbd">N</span>/<span class="kbd">P</span> next/prev • <span class="kbd">L</span> done • <span class="kbd">S</span> save
+    Shortcuts: <span class="kbd">B</span>/<span class="kbd">V</span> • <span class="kbd">[</span>/<span
+      class="kbd">]</span> size •
+    <span class="kbd">E</span> erase • <span class="kbd">N</span>/<span class="kbd">P</span> next/prev • <span
+      class="kbd">L</span> done • <span class="kbd">S</span> save
   </div>
 </div>
 {% endblock %}
@@ -132,102 +205,245 @@
 <script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
 
 <script>
-(function () {
-  const log  = (...a) => console.debug('[BRUSH:UI]', ...a);
-  const warn = (...a) => console.warn('[BRUSH:UI]', ...a);
-  const err  = (...a) => console.error('[BRUSH:UI]', ...a);
+  (function () {
+    const $ = (id) => document.getElementById(id);
 
-  const $ = (id) => document.getElementById(id);
+    // عناصر فرم
+    const elUid = $('polyUid');
+    const elUses = $('polyUsesFruit');
+    const elCode = $('polyCode');
+    const elArea = $('polyAreaM2');
+    const elLat = $('polyLat');
+    const elLon = $('polyLon');
+    const elLabelSel = $('polyLabelSelect');
+    const elCustomWrap = $('customLabelWrap');
+    const elLabelCustom = $('polyLabelCustom');
+    const elClass = $('polyClass');
+    const elColor = $('polyColor');
+    const btnApply = $('applyPropsBtn');
+    const btnSaveAll = $('savePolygonsBtn');
 
-  async function wireOnceReady() {
-    for (let i = 0; i < 200; i++) {
-      if (window.BrushApp && BrushApp.map && BrushApp.maskCanvas) break;
-      await new Promise(r => setTimeout(r, 50));
+    function showCustom() {
+      if (!elCustomWrap || !elLabelSel) return;
+      elCustomWrap.style.display = (elLabelSel.value === '__custom__') ? 'block' : 'none';
     }
-    const App = window.BrushApp;
-    if (!App) { err('BrushApp not found'); return; }
+    elLabelSel?.addEventListener('change', showCustom);
 
-    const btnPan     = $('modePanBtn2');
-    const btnBrush   = $('modeBrushBtn2');
-    const rngSize    = $('brushSize2');
-    const lblSize    = $('brushSizeVal2');
-    const chkErase   = $('eraseChk2');
-    const btnClear   = $('clearMask2');
-    const btnSavePNG = $('savePng2');    
-    const btnDone    = $('btnMarkDone');  
-    btnPan?.addEventListener('click', () => {
-      App.setMode('pan');
-      btnPan?.classList.add('primary');
-      btnBrush?.classList.remove('primary');
-      log('mode->pan', App._diag?.());
-    });
-    btnBrush?.addEventListener('click', () => {
-      App.setMode('brush');
-      btnBrush?.classList.add('primary');
-      btnPan?.classList.remove('primary');
-      const pe = App.maskCanvas?.style.pointerEvents;
-      log('mode->brush', { pointerEvents: pe }, App._diag?.());
-      if (pe !== 'auto') {
-        warn('maskCanvas not clickable; fixing...');
-        try { App.maskCanvas.style.pointerEvents = 'auto'; } catch {}
-      }
-    });
-
-    rngSize?.addEventListener('input', () => {
-      const v = parseInt(rngSize.value || '24', 10);
-      App.setBrushSize(v);
-      if (lblSize) lblSize.textContent = `${v} px`;
-      log('brush:size', v);
-    });
-    chkErase?.addEventListener('change', () => {
-      App.setErase(!!chkErase.checked);
-      log('brush:erase', !!chkErase.checked);
-    });
-    btnClear?.addEventListener('click', () => {
-      App.clearMask?.();
-      log('mask:cleared');
-    });
-    btnSavePNG?.addEventListener('click', async () => {
+    // محاسبه‌ی مساحت (m²) — از GeometryUtil اگر بود، وگرنه 0
+    function computeAreaM2(layer) {
       try {
-        await App.saveMask?.();
-      } catch (e) {
-        err('saveMask:error', e);
-        alert('Save failed: ' + e);
-      }
-    });
-    btnDone?.addEventListener('click', () => {
-      log('mark:done (no-op here)');
-    });
-    window.addEventListener('keydown', (e) => {
-      if (['INPUT','TEXTAREA','SELECT'].includes((e.target?.tagName || '').toUpperCase())) return;
-      if (e.key === 'v' || e.key === 'V') {
-        btnPan?.click();
-      } else if (e.key === 'b' || e.key === 'B') {
-        btnBrush?.click();
-      } else if (e.key === '[') {
-        const v = Math.max(2, (parseInt(rngSize?.value || '24', 10) - 1));
-        if (rngSize) rngSize.value = String(v);
-        rngSize?.dispatchEvent(new Event('input'));
-      } else if (e.key === ']') {
-        const v = Math.min(256, (parseInt(rngSize?.value || '24', 10) + 1));
-        if (rngSize) rngSize.value = String(v);
-        rngSize?.dispatchEvent(new Event('input'));
-      } else if (e.key === 'e' || e.key === 'E') {
-        if (chkErase) {
-          chkErase.checked = !chkErase.checked;
-          chkErase.dispatchEvent(new Event('change'));
+        if (L?.GeometryUtil?.geodesicArea) {
+          const latlngs = layer.getLatLngs();
+          const rings = (Array.isArray(latlngs[0]) && Array.isArray(latlngs[0][0])) ? latlngs : [latlngs];
+          let sum = 0;
+          for (const poly of rings) {
+            const ring = (Array.isArray(poly) && Array.isArray(poly[0])) ? poly[0] : poly;
+            sum += L.GeometryUtil.geodesicArea(ring);
+          }
+          return Math.max(0, sum);
         }
+      } catch { }
+      return 0;
+    }
+
+    // پر کردن فرم از روی لایه‌ی انتخابی
+    function populateForm(layer) {
+      if (!layer) return;
+      const p = layer._props || layer.feature?.properties || {};
+      if (elUid) elUid.value = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
+      if (elUses) elUses.value = p.uses_fruit || '';
+      if (elCode) elCode.value = p.code || '';
+
+      const label = p.label || '';
+      if (elLabelSel && elLabelCustom) {
+        if (['veg', 'background', ''].includes(label)) {
+          elLabelSel.value = label;
+          elLabelCustom.value = '';
+        } else {
+          elLabelSel.value = '__custom__';
+          elLabelCustom.value = label;
+        }
+        showCustom();
       }
-    });
 
-    if (rngSize) rngSize.dispatchEvent(new Event('input'));
-    if (chkErase) chkErase.dispatchEvent(new Event('change'));
+      if (elClass) elClass.value = (p.class_id != null ? p.class_id : 1);
+      if (elColor) elColor.value = p.color || '#00ff00';
 
-    log('UI wired ✔', App._diag?.());
-  }
+      try {
+        const ctr = layer.getBounds().getCenter();
+        if (elLat) elLat.value = Number(ctr.lat.toFixed(6));
+        if (elLon) elLon.value = Number(ctr.lng.toFixed(6));
+      } catch {
+        if (elLat) elLat.value = '';
+        if (elLon) elLon.value = '';
+      }
+      if (elArea) elArea.value = Math.round(computeAreaM2(layer) * 100) / 100;
+    }
 
-  document.addEventListener('DOMContentLoaded', wireOnceReady);
-})();
+    // گرفتن مقدارها از فرم و نوشتن داخل لایه
+    function applyForm(layer) {
+      if (!layer) return;
+      layer._props ||= {};
+      const p = layer._props;
+      p.uid = (elUid?.value || p.uid || layer?.feature?.properties?.uid);
+      p.uses_fruit = elUses?.value || '';
+      p.code = elCode?.value || '';
+      p.label = (elLabelSel?.value === '__custom__') ? (elLabelCustom?.value || '') : (elLabelSel?.value || '');
+      p.class_id = parseInt(elClass?.value || '1', 10) || 1;
+      p.color = elColor?.value || '#00ff00';
+      try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch { }
+    }
+
+    function wireAfterReady() {
+      const App = window.BrushApp;
+      const IO = window.BrushIO; // اگر IO داری، برای current() استفاده می‌کنیم
+
+      // وقتی لایه‌ای انتخاب شد، فرم را پر کن
+      const prev = App.onLayerSelected;
+      App.onLayerSelected = (layer) => {
+        try { prev && prev(layer); } catch { }
+        populateForm(layer);
+      };
+      if (App.selectedLayer) populateForm(App.selectedLayer);
+
+      // دکمه‌ی Apply: تغییرات را روی لایه بزن (و نوسازی ظاهر)
+      btnApply?.addEventListener('click', () => {
+        const layer = IO?.current?.() || App?.selectedLayer;
+        if (layer) applyForm(layer);
+      });
+
+      // دکمه‌ی Save All: همه‌ی لایه‌ها را جمع کن و به سرور بفرست
+      btnSaveAll?.addEventListener('click', async () => {
+        // قبل از ذخیره، روی لایه‌ی جاری هم اعمال کن تا چیزی جا نماند
+        const layer = IO?.current?.() || App?.selectedLayer;
+        if (layer) applyForm(layer);
+
+        const features = [];
+        for (const ly of (App?.layers || [])) {
+          try {
+            const gj = ly.toGeoJSON();
+            gj.properties = { ...(ly._props || {}) };
+            features.push(gj);
+          } catch { }
+        }
+        const fc = { type: 'FeatureCollection', features };
+
+        try {
+          const r = await fetch('/api/save_polygons', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fc)
+          });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          alert('Polygons saved.');
+        } catch (e) {
+          console.error('save_polygons:error', e);
+          alert('Save failed: ' + e.message);
+        }
+      });
+    }
+
+    if (window.BrushApp?.ready) wireAfterReady();
+    else window.addEventListener('brush:ready', wireAfterReady, { once: true });
+  })();
+</script>
+<script>
+  (function () {
+    const log = (...a) => console.debug('[BRUSH:UI]', ...a);
+    const warn = (...a) => console.warn('[BRUSH:UI]', ...a);
+    const err = (...a) => console.error('[BRUSH:UI]', ...a);
+
+    const $ = (id) => document.getElementById(id);
+
+    async function wireOnceReady() {
+      for (let i = 0; i < 200; i++) {
+        if (window.BrushApp && BrushApp.map && BrushApp.maskCanvas) break;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      const App = window.BrushApp;
+      if (!App) { err('BrushApp not found'); return; }
+
+      const btnPan = $('modePanBtn2');
+      const btnBrush = $('modeBrushBtn2');
+      const rngSize = $('brushSize2');
+      const lblSize = $('brushSizeVal2');
+      const chkErase = $('eraseChk2');
+      const btnClear = $('clearMask2');
+      const btnSavePNG = $('savePng2');
+      const btnDone = $('btnMarkDone');
+      btnPan?.addEventListener('click', () => {
+        App.setMode('pan');
+        btnPan?.classList.add('primary');
+        btnBrush?.classList.remove('primary');
+        log('mode->pan', App._diag?.());
+      });
+      btnBrush?.addEventListener('click', () => {
+        App.setMode('brush');
+        btnBrush?.classList.add('primary');
+        btnPan?.classList.remove('primary');
+        const pe = App.maskCanvas?.style.pointerEvents;
+        log('mode->brush', { pointerEvents: pe }, App._diag?.());
+        if (pe !== 'auto') {
+          warn('maskCanvas not clickable; fixing...');
+          try { App.maskCanvas.style.pointerEvents = 'auto'; } catch { }
+        }
+      });
+
+      rngSize?.addEventListener('input', () => {
+        const v = parseInt(rngSize.value || '24', 10);
+        App.setBrushSize(v);
+        if (lblSize) lblSize.textContent = `${v} px`;
+        log('brush:size', v);
+      });
+      chkErase?.addEventListener('change', () => {
+        App.setErase(!!chkErase.checked);
+        log('brush:erase', !!chkErase.checked);
+      });
+      btnClear?.addEventListener('click', () => {
+        App.clearMask?.();
+        log('mask:cleared');
+      });
+      btnSavePNG?.addEventListener('click', async () => {
+        try {
+          await App.saveMask?.();
+        } catch (e) {
+          err('saveMask:error', e);
+          alert('Save failed: ' + e);
+        }
+      });
+      btnDone?.addEventListener('click', () => {
+        log('mark:done (no-op here)');
+      });
+      window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target?.tagName || '').toUpperCase())) return;
+        if (e.key === 'v' || e.key === 'V') {
+          btnPan?.click();
+        } else if (e.key === 'b' || e.key === 'B') {
+          btnBrush?.click();
+        } else if (e.key === '[') {
+          const v = Math.max(2, (parseInt(rngSize?.value || '24', 10) - 1));
+          if (rngSize) rngSize.value = String(v);
+          rngSize?.dispatchEvent(new Event('input'));
+        } else if (e.key === ']') {
+          const v = Math.min(256, (parseInt(rngSize?.value || '24', 10) + 1));
+          if (rngSize) rngSize.value = String(v);
+          rngSize?.dispatchEvent(new Event('input'));
+        } else if (e.key === 'e' || e.key === 'E') {
+          if (chkErase) {
+            chkErase.checked = !chkErase.checked;
+            chkErase.dispatchEvent(new Event('change'));
+          }
+        }
+      });
+
+      if (rngSize) rngSize.dispatchEvent(new Event('input'));
+      if (chkErase) chkErase.dispatchEvent(new Event('change'));
+
+      log('UI wired ✔', App._diag?.());
+    }
+
+    document.addEventListener('DOMContentLoaded', wireOnceReady);
+  })();
 </script>
 
 <script>
@@ -257,18 +473,18 @@
   (function () {
     const $ = (id) => document.getElementById(id);
 
-    const elUid   = $('polyUid');
-    const elUses  = $('polyUsesFruit');
-    const elCode  = $('polyCode');
-    const elArea  = $('polyAreaM2');
-    const elLat   = $('polyLat');
-    const elLon   = $('polyLon');
-    const elLabelSel    = $('polyLabelSelect');
-    const elCustomWrap  = $('customLabelWrap');
+    const elUid = $('polyUid');
+    const elUses = $('polyUsesFruit');
+    const elCode = $('polyCode');
+    const elArea = $('polyAreaM2');
+    const elLat = $('polyLat');
+    const elLon = $('polyLon');
+    const elLabelSel = $('polyLabelSelect');
+    const elCustomWrap = $('customLabelWrap');
     const elLabelCustom = $('polyLabelCustom');
     const elClass = $('polyClass');
     const elColor = $('polyColor');
-    const btnApply   = $('applyPropsBtn');
+    const btnApply = $('applyPropsBtn');
     const btnSaveAll = $('savePolygonsBtn');
 
     function showCustom() {
@@ -292,11 +508,11 @@
     function populateForm(layer) {
       if (!layer) return;
       const p = layer._props || layer.feature?.properties || {};
-      elUid.value  = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
+      elUid.value = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
       elUses.value = p.uses_fruit || '';
       elCode.value = p.code || '';
       const label = p.label || '';
-      if (['veg','background',''].includes(label)) {
+      if (['veg', 'background', ''].includes(label)) {
         elLabelSel.value = label;
         elLabelCustom.value = '';
       } else {
@@ -321,22 +537,22 @@
       if (!layer) return;
       layer._props ||= {};
       const p = layer._props;
-      p.uid        = elUid.value || p.uid || layer?.feature?.properties?.uid;
+      p.uid = elUid.value || p.uid || layer?.feature?.properties?.uid;
       p.uses_fruit = elUses.value || '';
-      p.code       = elCode.value || '';
-      p.label      = (elLabelSel.value === '__custom__') ? (elLabelCustom.value || '') : elLabelSel.value;
-      p.class_id   = parseInt(elClass.value || '1', 10) || 1;
-      p.color      = elColor.value || '#00ff00';
-      try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch {}
+      p.code = elCode.value || '';
+      p.label = (elLabelSel.value === '__custom__') ? (elLabelCustom.value || '') : elLabelSel.value;
+      p.class_id = parseInt(elClass.value || '1', 10) || 1;
+      p.color = elColor.value || '#00ff00';
+      try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch { }
     }
 
     function wireAfterReady() {
       const App = window.BrushApp;
-      const IO  = window.BrushIO;
+      const IO = window.BrushIO;
 
       const prev = App.onLayerSelected;
       App.onLayerSelected = (layer) => {
-        try { prev && prev(layer); } catch {}
+        try { prev && prev(layer); } catch { }
         populateForm(layer);
       };
       if (App.selectedLayer) populateForm(App.selectedLayer);
@@ -355,10 +571,10 @@
           gj.properties = { ...(ly._props || {}) };
           features.push(gj);
         }
-        const fc = { type:'FeatureCollection', features };
+        const fc = { type: 'FeatureCollection', features };
         const r = await fetch('/api/save_polygons', {
-          method:'POST',
-          headers:{ 'Content-Type':'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(fc)
         });
         if (!r.ok) { alert('Save failed'); return; }
@@ -367,7 +583,7 @@
     }
 
     if (window.BrushApp?.ready) wireAfterReady();
-    else window.addEventListener('brush:ready', wireAfterReady, { once:true });
+    else window.addEventListener('brush:ready', wireAfterReady, { once: true });
   })();
 </script>
 {% endblock %}

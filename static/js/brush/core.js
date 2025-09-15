@@ -338,6 +338,10 @@ console.log("[BRUSH:core] loaded");
     App.selectedLayer = layer;
     try { App.selectedLayer.setStyle({ weight: 3, color: '#4f46e5' }); } catch { }
     log('poly:selected', { uid: App.layerUid?.(layer) });
+
+    try {
+      if (typeof App.onLayerSelected === 'function') App.onLayerSelected(layer);
+    } catch (e) { warn('onLayerSelected:error', e); }
   };
 
   // ---------- SAVE / CLEAR ----------
