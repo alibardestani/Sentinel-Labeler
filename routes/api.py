@@ -1,18 +1,15 @@
-# routes/api.py
 from __future__ import annotations
-
 import json
 import tempfile
 from pathlib import Path
-
+from flask import current_app
 import geopandas as gpd
 import numpy as np
-from flask import Blueprint, jsonify, make_response, request, send_from_directory, current_app
+from flask import Blueprint, jsonify, make_response, request, send_from_directory
 from werkzeug.utils import secure_filename
-
 from config import settings
 from services.masks import load_mask, mask_bytes, save_mask_bytes
-from services.polygons import save_polygons_fc
+from services.polygons import save_polygons_fc, load_polygons_text
 from services.progress import get_progress
 from services.s2 import (
     backdrop_meta,
@@ -25,17 +22,14 @@ from services.s2 import (
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
-
 @api_bp.get("/output/<path:filename>")
 def output_files(filename: str):
     return send_from_directory(settings.OUTPUT_DIR, filename, conditional=True)
-
 
 @api_bp.get("/backdrop_meta")
 def api_backdrop_meta():
     w, h = backdrop_meta()
     return jsonify({"width": int(w), "height": int(h)})
-
 
 @api_bp.route("/align_offset", methods=["GET", "POST"])
 def align_offset():
@@ -55,22 +49,24 @@ def align_offset():
             pass
     return jsonify({"dx_m": 0.0, "dy_m": 0.0})
 
-
 @api_bp.get("/s2_bounds_wgs84")
-def api_s2_bounds():
+def api_s2_bounds_wgs84():
     b = s2_bounds_wgs84()
     if not b:
         return ("", 204)
     return jsonify(b)
 
-
 @api_bp.get("/polygons")
 def api_polygons_get():
-    p = settings.POLYGONS_GEOJSON
-    if p.exists():
-        return send_from_directory(p.parent, p.name, conditional=True)
+    from services.polygons import load_polygons_text
+    txt = load_polygons_text()
+    if txt:
+        return current_app.response_class(
+            response=txt,
+            status=200,
+            mimetype="application/json"
+        )
     return jsonify({"type": "FeatureCollection", "features": []})
-
 
 @api_bp.post("/save_polygons")
 def api_save_polygons():
@@ -79,7 +75,6 @@ def api_save_polygons():
     if not ok:
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
-
 
 @api_bp.post("/polygons/upload")
 def api_polygons_upload():
@@ -91,7 +86,6 @@ def api_polygons_upload():
             return (jsonify({"ok": True}) if ok else (jsonify({"error": msg}), 400))
         except Exception as e:
             return jsonify({"error": f"no file and invalid body: {e}"}), 400
-
     filename = secure_filename(f.filename or "upload")
     name = filename.lower()
     try:
@@ -111,7 +105,6 @@ def api_polygons_upload():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @api_bp.get("/mask_raw")
 def api_mask_raw():
     ensure_backdrop()
@@ -122,7 +115,6 @@ def api_mask_raw():
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
-
 @api_bp.post("/save_mask")
 def api_save_mask():
     raw = request.get_data()
@@ -132,18 +124,12 @@ def api_save_mask():
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
 
-
 @api_bp.get("/mask_stats")
 def api_mask_stats():
     w, h = backdrop_meta()
     m = load_mask(w, h)
     vals, cnts = np.unique(m, return_counts=True)
-    return jsonify({
-        "width": int(w),
-        "height": int(h),
-        "counts": {int(v): int(c) for v, c in zip(vals, cnts)}
-    })
-
+    return jsonify({"width": int(w), "height": int(h), "counts": {int(v): int(c) for v, c in zip(vals, cnts)}})
 
 @api_bp.get("/mask")
 def api_get_mask():
@@ -152,17 +138,14 @@ def api_get_mask():
         return ("", 204)
     return send_from_directory(p.parent, p.name, conditional=True)
 
-
 @api_bp.get("/progress")
 def api_progress():
     return jsonify(get_progress())
-
 
 @api_bp.get("/scenes/list")
 def api_scenes_list():
     items = [s.__dict__ for s in list_s2_scenes()]
     return jsonify({"ok": True, "items": items})
-
 
 @api_bp.post("/scenes/select")
 def api_scenes_select():
@@ -174,9 +157,7 @@ def api_scenes_select():
         meta = select_scene_by_id(scene_id)
         return jsonify({"ok": True, "meta": meta})
     except Exception as e:
-        current_app.logger.exception("scene select failed")
         return jsonify({"ok": False, "error": str(e)}), 500
-
 
 @api_bp.get("/scenes/current")
 def api_scenes_current():
