@@ -5,6 +5,10 @@
 *.tif
 *.tiff
 
+# Raw data folders (keep only small samples)
+data/sense/
+data/
+
 # ML / DL model weights
 *.pt
 *.pth
@@ -27,10 +31,11 @@
 
 # --- build / runtime outputs ---
 /output/
-data/
-models/
-runs/
-checkpoints/
+/models/
+/runs/
+/checkpoints/
+/logs/
+/tmp/
 
 # cache / temps
 __pycache__/
@@ -38,12 +43,13 @@ __pycache__/
 *.tmp
 .DS_Store
 
-# IMPORTANT:
-# اگر PNG های UI لازم داری (آیکون‌ها در static/)،
-# کل PNG را ignore نکن! فقط خروجی‌ها را پوشش بده.
-# نمونه: اگر خروجی PNG داری، همه در /output/ هستند که بالا ignore شده است.
+# IDE / editor
+.vscode/
+.idea/
+*.swp
 
-# ignore generated outputs
-output/
-__pycache__/
-*.pyc
+# IMPORTANT:
+# اگر PNG های UI لازم داری (مثل icons داخل static/),
+# کل PNG را ignore نکن! فقط خروجی‌ها را پوشش بده.
+# تمام خروجی PNG ها در /output/ پوشش داده شده است.
+

@@ -17,5 +17,8 @@ S2_RGB_TIF      = OUTPUT_DIR / "rgb.tif"
 BACKDROP_IMAGE  = OUTPUT_DIR / "rgb_quicklook.png"
 ALIGN_OFFSET_FILE = OUTPUT_DIR / "align_offset.json"
 
-POLYGONS_GEOJSON = OUTPUT_DIR / "polygons.geojson"
 MASK_PNG         = OUTPUT_DIR / "mask.png"
+
+POLYGONS_SHP_DIR = BASE_DIR / "data/polygons/shp"
+POLYGONS_OUT_DIR = BASE_DIR / "output/polygons"
+POLYGONS_GEOJSON = POLYGONS_OUT_DIR / "current.geojson"

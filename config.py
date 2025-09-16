@@ -11,18 +11,24 @@ Image.MAX_IMAGE_PIXELS = 2_000_000_000
 @dataclass
 class Settings:
     BASE_DIR: Path = Path(__file__).resolve().parent
+
+    # خروجی‌ها و سینز
     OUTPUT_DIR: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "output")
     SCENES_DIR: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "data" / "scenes")
 
+    # Sentinel-2
     S2_JP2_DIR: Optional[Path] = None
     S2_BANDS: Dict[str, str] = field(default_factory=lambda: {"R": "B04", "G": "B03", "B": "B02", "NIR": "B08"})
-
     BACKDROP_IMAGE: Path = field(init=False)
     S2_RGB_TIF: Path = field(init=False)
 
-    POLYGONS_GEOJSON: Path = field(init=False)
-    POLYGONS_SHP: Path = field(init=False)
+    # ماسک و پُلیگان
     MASK_PNG: Path = field(init=False)
+
+    # 🔹 مسیرهای شِیپ‌فایل و خروجیِ GeoJSON (برای لود خودکارِ پُلیگان‌ها)
+    POLYGONS_SHP_DIR: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "data" / "polygons" / "shp")
+    POLYGONS_OUT_DIR: Path = field(default_factory=lambda: Path(__file__).resolve().parent / "output" / "polygons")
+    POLYGONS_GEOJSON: Path = field(init=False)
 
     CLASS_LIST: List[Dict] = field(default_factory=lambda: [
         {"name": "Background", "id": 0, "color": "#000000"},
@@ -62,20 +68,23 @@ class Settings:
     TILE_BLOCK_SIZE: int = 1024
 
     def __post_init__(self):
+        # پوشه‌ها
         self.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         self.SCENES_DIR.mkdir(parents=True, exist_ok=True)
+        self.MODELS_DIR = self.OUTPUT_DIR / "models"
+        self.MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+        # مسیرهای خروجی
         self.BACKDROP_IMAGE    = self.OUTPUT_DIR / "rgb_quicklook.png"
         self.S2_RGB_TIF        = self.OUTPUT_DIR / "s2_rgb.tif"
-        self.POLYGONS_GEOJSON  = self.OUTPUT_DIR / "polygons.geojson"
-        self.POLYGONS_SHP      = self.OUTPUT_DIR / "polygons.shp"
         self.MASK_PNG          = self.OUTPUT_DIR / "mask.png"
-        self.MODELS_DIR        = self.OUTPUT_DIR / "models"
         self.ACTIVE_MODEL_PATH = self.MODELS_DIR / "active.onnx"
         self.ALIGN_OFFSET_FILE = self.OUTPUT_DIR / "align_offset.json"
         self.SELECTED_SCENE_FILE = self.OUTPUT_DIR / "selected_scene.json"
 
-        self.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        # پُلیگان‌ها
+        self.POLYGONS_OUT_DIR.mkdir(parents=True, exist_ok=True)
+        self.POLYGONS_GEOJSON = self.POLYGONS_OUT_DIR / "current.geojson"
 
     @property
     def has_scene(self) -> bool:
@@ -85,3 +94,4 @@ class Settings:
         self.S2_JP2_DIR = Path(p)
 
 settings = Settings()
+

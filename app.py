@@ -9,6 +9,8 @@ from flask import (
     Flask, render_template, redirect, url_for,
     request, session, jsonify, send_file, abort
 )
+from services.polygons_bootstrap import ensure_geojson_from_shapefile
+
 
 from config import settings
 from routes.api import api_bp
@@ -129,4 +131,5 @@ def api_masks_get():
 
 
 if __name__ == "__main__":
+    ensure_geojson_from_shapefile()
     app.run(host="127.0.0.1", port=5000, debug=True)

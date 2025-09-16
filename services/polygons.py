@@ -1,97 +1,97 @@
 # services/polygons.py
 from __future__ import annotations
 import json
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Tuple, Optional, List
-import geopandas as gpd
+from typing import Optional
+from datetime import datetime
 
 from config import settings
-from services.s2 import current_selected_scene
 
-POLY_DIR = settings.OUTPUT_DIR / "polygons"
+def _latest_mtime(p: Path) -> float:
+    """بالاترین زمان ویرایش بین فایل‌های shapefile را برمی‌گرداند."""
+    exts = (".shp", ".shx", ".dbf", ".prj", ".cpg")
+    mt = 0.0
+    for ext in exts:
+        f = next(p.glob(f"*{ext}"), None) if p.is_dir() else (p if p.suffix.lower()==ext else None)
+        if f and f.exists():
+            mt = max(mt, f.stat().st_mtime)
+    return mt
 
-def _scene_id() -> Optional[str]:
-    sc = current_selected_scene()
-    return sc.id if sc else None
-
-def _geojson_candidates(scene_id: Optional[str]) -> List[Path]:
-    cands: List[Path] = []
-    if scene_id:
-        cands += [
-            POLY_DIR / f"{scene_id}.geojson",
-            POLY_DIR / f"{scene_id}.json",
-        ]
-    cands += [
-        POLY_DIR / "subset.geojson",
-        POLY_DIR / "polygons.geojson",
-        settings.POLYGONS_GEOJSON,  # بکاپ قدیمی
-    ]
-    return cands
-
-def _shapefile_stems(scene_id: Optional[str]) -> List[str]:
-    stems: List[str] = []
-    if scene_id:
-        stems += [scene_id]
-    stems += ["subset", "polygons"]
-    return stems
-
-def _find_any_shapefile(scene_id: Optional[str]) -> Optional[Path]:
-    stems = _shapefile_stems(scene_id)
-    for st in stems:
-        shp = POLY_DIR / f"{st}.shp"
-        if shp.exists():
-            return shp
-    shp_files = list(POLY_DIR.glob("*.shp"))
-    if len(shp_files) == 1:
-        return shp_files[0]
-    if scene_id:
-        for p in shp_files:
-            if scene_id in p.stem:
-                return p
-    return shp_files[0] if shp_files else None
-
-def load_polygons_text() -> Optional[str]:
-    POLY_DIR.mkdir(parents=True, exist_ok=True)
-    sid = _scene_id()
-
-    for p in _geojson_candidates(sid):
-        if p and p.exists():
-            try:
-                return p.read_text(encoding="utf-8")
-            except Exception:
-                pass
-
-    shp = _find_any_shapefile(sid)
-    if shp and shp.exists():
-        try:
-            gdf = gpd.read_file(shp)
-            if not gdf.empty and gdf.crs is not None:
-                try:
-                    gdf = gdf.to_crs(epsg=4326)
-                except Exception:
-                    pass
-            return gdf.to_json()
-        except Exception:
-            return None
-
+def _find_shp(base: Path) -> Optional[Path]:
+    if base.is_file() and base.suffix.lower() == ".shp":
+        return base
+    if base.is_dir():
+        shp = next(base.glob("*.shp"), None)
+        return shp
     return None
 
-def _output_geojson_path(scene_id: Optional[str]) -> Path:
-    POLY_DIR.mkdir(parents=True, exist_ok=True)
-    if scene_id:
-        return POLY_DIR / f"{scene_id}.geojson"
-    return POLY_DIR / "polygons.geojson"
+def _ensure_outdir():
+    settings.POLYGONS_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-def save_polygons_fc(fc: dict) -> Tuple[bool, str]:
+def _ogr2ogr_available() -> bool:
+    return shutil.which("ogr2ogr") is not None
+
+def _build_with_ogr2ogr(shp: Path, out_geojson: Path):
+    cmd = [
+        "ogr2ogr",
+        "-t_srs", "EPSG:4326",
+        "-f", "GeoJSON",
+        str(out_geojson),
+        str(shp),
+    ]
+    subprocess.run(cmd, check=True)
+
+def _build_with_geopandas(shp: Path, out_geojson: Path):
+    import geopandas as gpd
+    gdf = gpd.read_file(shp)
+    # اگر CRS ندارد ولی فایل .prj کنار آن هست، gpd معمولاً تشخیص می‌دهد.
+    # برای اطمینان اگر crs نبود، به همان شکل ادامه می‌دهیم.
     try:
-        if not fc or fc.get("type") != "FeatureCollection":
-            return False, "invalid geojson"
-        sid = _scene_id()
-        outp = _output_geojson_path(sid)
-        outp.parent.mkdir(parents=True, exist_ok=True)
-        tmp = outp.with_suffix(outp.suffix + ".tmp")
-        tmp.write_text(json.dumps(fc, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(outp)
-        return True, "ok"
-    except Exception as e:
-        return False, str(e)
+        if gdf.crs and str(gdf.crs).upper() not in ("EPSG:4326", "WGS84"):
+            gdf = gdf.to_crs("EPSG:4326")
+    except Exception:
+        # اگر crs نامعتبر بود، بدون تغییر ادامه بده (به امید اینکه همین الان WGS84 باشد)
+        pass
+    out_geojson.write_text(gdf.to_json(), encoding="utf-8")
+
+def ensure_polygons_geojson() -> Optional[Path]:
+    """
+    اگر current.geojson وجود ندارد یا قدیمی‌تر از Shapefile است،
+    آن را از Shapefile می‌سازد. مسیر GeoJSON را برمی‌گرداند، وگرنه None.
+    """
+    _ensure_outdir()
+    shp = _find_shp(settings.POLYGONS_SHP_DIR)
+    if not shp:
+        return settings.POLYGONS_GEOJSON if settings.POLYGONS_GEOJSON.exists() else None
+
+    shp_mtime = _latest_mtime(settings.POLYGONS_SHP_DIR)
+    gj = settings.POLYGONS_GEOJSON
+
+    needs_build = True
+    if gj.exists():
+        needs_build = (gj.stat().st_mtime < shp_mtime)
+
+    if needs_build:
+        if gj.exists():
+            gj.unlink(missing_ok=True)
+        if _ogr2ogr_available():
+            _build_with_ogr2ogr(shp, gj)
+        else:
+            _build_with_geopandas(shp, gj)
+
+    return gj if gj.exists() else None
+
+def load_polygons_text() -> Optional[str]:
+    """
+    GeoJSON را به‌صورت متن برمی‌گرداند. اگر نبود، تلاش می‌کند بسازد.
+    """
+    gj = settings.POLYGONS_GEOJSON
+    if not gj.exists():
+        gj = ensure_polygons_geojson()
+    if gj and gj.exists():
+        return gj.read_text(encoding="utf-8")
+    return None
+
+

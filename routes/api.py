@@ -1,15 +1,13 @@
+# routes/api.py  (یا هر فایلی که blueprint را تعریف کرده)
 from __future__ import annotations
 import json
-import tempfile
 from pathlib import Path
-from flask import current_app
-import geopandas as gpd
+from flask import Blueprint, jsonify, make_response, request, send_from_directory, current_app
 import numpy as np
-from flask import Blueprint, jsonify, make_response, request, send_from_directory
-from werkzeug.utils import secure_filename
+
 from config import settings
 from services.masks import load_mask, mask_bytes, save_mask_bytes
-from services.polygons import save_polygons_fc, load_polygons_text
+from services.polygons import load_polygons_text  # فقط این
 from services.progress import get_progress
 from services.s2 import (
     backdrop_meta,
@@ -56,9 +54,9 @@ def api_s2_bounds_wgs84():
         return ("", 204)
     return jsonify(b)
 
+# --- فقط همین روت برای پولیگان‌ها باقی بماند ---
 @api_bp.get("/polygons")
 def api_polygons_get():
-    from services.polygons import load_polygons_text
     txt = load_polygons_text()
     if txt:
         return current_app.response_class(
@@ -66,44 +64,10 @@ def api_polygons_get():
             status=200,
             mimetype="application/json"
         )
+    # اگر چیزی نبود، خالی بده (FeatureCollection خالی)
     return jsonify({"type": "FeatureCollection", "features": []})
 
-@api_bp.post("/save_polygons")
-def api_save_polygons():
-    fc = request.get_json(force=True, silent=True)
-    ok, msg = save_polygons_fc(fc)
-    if not ok:
-        return jsonify({"error": msg}), 400
-    return jsonify({"ok": True})
-
-@api_bp.post("/polygons/upload")
-def api_polygons_upload():
-    f = request.files.get("file")
-    if not f:
-        try:
-            fc = request.get_json(force=True)
-            ok, msg = save_polygons_fc(fc)
-            return (jsonify({"ok": True}) if ok else (jsonify({"error": msg}), 400))
-        except Exception as e:
-            return jsonify({"error": f"no file and invalid body: {e}"}), 400
-    filename = secure_filename(f.filename or "upload")
-    name = filename.lower()
-    try:
-        if name.endswith((".geojson", ".json")):
-            data = json.loads(f.stream.read().decode("utf-8"))
-            ok, msg = save_polygons_fc(data)
-            return (jsonify({"ok": True}) if ok else (jsonify({"error": msg}), 400))
-        elif name.endswith(".zip"):
-            with tempfile.TemporaryDirectory() as tmpd:
-                tmp_zip = Path(tmpd) / filename
-                f.save(tmp_zip)
-                gdf = gpd.read_file(tmp_zip)
-                fc = json.loads(gdf.to_json())
-                ok, msg = save_polygons_fc(fc)
-                return (jsonify({"ok": True}) if ok else (jsonify({"error": msg}), 400))
-        return jsonify({"error": "Unsupported file type. Use .geojson/.json or .zip"}), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# --- بقیه APIها بدون تغییر ---
 
 @api_bp.get("/mask_raw")
 def api_mask_raw():
@@ -163,3 +127,4 @@ def api_scenes_select():
 def api_scenes_current():
     it = current_selected_scene()
     return jsonify({"ok": True, "scene": (it.__dict__ if it else None)})
+
