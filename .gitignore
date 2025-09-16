@@ -5,9 +5,6 @@
 *.tif
 *.tiff
 
-# Raw data folders (keep only small samples)
-data/sense/
-data/
 
 # ML / DL model weights
 *.pt

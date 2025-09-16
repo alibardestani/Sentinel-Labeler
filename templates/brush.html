@@ -183,6 +183,14 @@
     <label style="display:flex;align-items:center;gap:6px">
       <input id="eraseChk2" type="checkbox" /> Erase (E)
     </label>
+    <label>Class
+      <select id="brushClassSelect" style="min-width:160px">
+        <option value="1">گردو (سبز)</option>
+        <option value="2">پسته (نارنجی)</option>
+        <option value="3">نخیلات (زرد)</option>
+        <option value="0">Background (پاک)</option>
+        </select>
+    </label>
     <button id="clearMask2" class="btn">Clear</button>
     <button id="btnMarkDone" class="btn">Mark done (L)</button>
     <button id="savePng2" class="btn primary">Save PNG (S)</button>
@@ -197,6 +205,17 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  window.BRUSH_PALETTE = {
+    0:{name:'Background', color:'#00000000'},
+    1:{name:'گردو',   color:'#00ff00ff'},
+    2:{name:'پسته',   color:'#ffa500ff'},
+    3:{name:'نخیلات', color:'#ffff00ff'},
+    4:{name:'انگور',  color:'#9400d3ff'},
+  };
+</script>
+
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
 
@@ -447,112 +466,169 @@
 </script>
 
 <script>
-  window.addEventListener('DOMContentLoaded', async () => {
-    try {
-      await window.BrushApp.init({
-        mapId: 'map',
-        maskId: 'maskCanvas',
-        cursorId: 'cursorCanvas',
-        enforceClip: true,
-        overlayBoundsURL: '/api/s2_bounds_wgs84',
-        overlayImageURL: '/api/output/rgb_quicklook.png'
-      });
-
-      window.BrushApp.ready = true;
-      window.dispatchEvent(new Event('brush:ready'));
-
-      if (window.BrushIO?.reloadPolygonsForScene) {
-        await window.BrushIO.reloadPolygonsForScene();
-      }
-    } catch (e) {
-      console.error('[BRUSH] init failed', e);
-      if (window.BrushApp?.map) window.BrushApp.map.setView([30.0, 52.0], 12);
-    }
-  });
-
   (function () {
     const $ = (id) => document.getElementById(id);
 
-    const elUid = $('polyUid');
-    const elUses = $('polyUsesFruit');
-    const elCode = $('polyCode');
-    const elArea = $('polyAreaM2');
-    const elLat = $('polyLat');
-    const elLon = $('polyLon');
-    const elLabelSel = $('polyLabelSelect');
-    const elCustomWrap = $('customLabelWrap');
-    const elLabelCustom = $('polyLabelCustom');
-    const elClass = $('polyClass');
-    const elColor = $('polyColor');
-    const btnApply = $('applyPropsBtn');
-    const btnSaveAll = $('savePolygonsBtn');
-
-    function showCustom() {
-      elCustomWrap.style.display = (elLabelSel.value === '__custom__') ? 'block' : 'none';
+    // ——— helper: منتظر می‌ماند تا شرط برقرار شود یا timeout
+    function waitFor(testFn, { interval = 50, timeout = 5000 } = {}) {
+      return new Promise((resolve, reject) => {
+        const t0 = Date.now();
+        const tick = () => {
+          if (testFn()) return resolve(true);
+          if (Date.now() - t0 > timeout) return reject(new Error('waitFor: timeout'));
+          setTimeout(tick, interval);
+        };
+        tick();
+      });
     }
-    elLabelSel?.addEventListener('change', showCustom);
 
-    function computeAreaM2(layer) {
+    async function main() {
+      // 1) صبر کن BrushApp لود شود
+      await waitFor(() => window.BrushApp && typeof window.BrushApp.init === 'function');
+
+      // 2) init فقط یک‌بار
       try {
-        const latlngs = layer.getLatLngs();
-        const rings = (Array.isArray(latlngs[0]) && Array.isArray(latlngs[0][0])) ? latlngs : [latlngs];
-        let sum = 0;
-        for (const poly of rings) {
-          const ring = (Array.isArray(poly) && Array.isArray(poly[0])) ? poly[0] : poly;
-          sum += L.GeometryUtil.geodesicArea(ring);
+        await window.BrushApp.init({
+          mapId: 'map',
+          maskId: 'maskCanvas',
+          cursorId: 'cursorCanvas',
+          enforceClip: true, // اگر در core ازش پشتیبانی می‌کنی
+          overlayBoundsURL: '/api/s2_bounds_wgs84',
+          overlayImageURL: '/api/output/rgb_quicklook.png'
+        });
+        window.BrushApp.ready = true;
+        window.dispatchEvent(new Event('brush:ready'));
+      } catch (e) {
+        console.error('[BRUSH] init failed', e);
+        if (window.BrushApp?.map) window.BrushApp.map.setView([30.0, 52.0], 12);
+      }
+
+      // 3) اگر IO موجود است، پُلی‌گان‌ها را لود کن
+      try {
+        if (window.BrushIO?.reloadPolygonsForScene) {
+          await window.BrushIO.reloadPolygonsForScene();
         }
-        return Math.max(0, sum);
-      } catch { return 0; }
-    }
-
-    function populateForm(layer) {
-      if (!layer) return;
-      const p = layer._props || layer.feature?.properties || {};
-      elUid.value = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
-      elUses.value = p.uses_fruit || '';
-      elCode.value = p.code || '';
-      const label = p.label || '';
-      if (['veg', 'background', ''].includes(label)) {
-        elLabelSel.value = label;
-        elLabelCustom.value = '';
-      } else {
-        elLabelSel.value = '__custom__';
-        elLabelCustom.value = label;
+      } catch (e) {
+        console.warn('[BRUSH] reloadPolygonsForScene failed', e);
       }
-      showCustom();
-      elClass.value = (p.class_id != null ? p.class_id : 1);
-      elColor.value = p.color || '#00ff00';
-      try {
-        const ctr = layer.getBounds().getCenter();
-        elLat.value = Number(ctr.lat.toFixed(6));
-        elLon.value = Number(ctr.lng.toFixed(6));
-      } catch {
-        elLat.value = '';
-        elLon.value = '';
+
+      // 4) سیم‌کشی انتخاب کلاس قلم (brushClassSelect)
+      const selClass = document.getElementById('brushClassSelect');
+      if (selClass) {
+        // اگر می‌خواهی از پالت داخل BrushApp پر کنی:
+        try {
+          const palette = window.BrushApp.PALETTE || {};
+          if (selClass.children.length === 0 && Object.keys(palette).length) {
+            selClass.innerHTML = '';
+            Object.entries(palette).forEach(([id, ent]) => {
+              const op = document.createElement('option');
+              op.value = id;
+              op.textContent = `${id} — ${ent?.name ?? 'Class ' + id}`;
+              selClass.appendChild(op);
+            });
+          }
+        } catch {}
+
+        // مقدار اولیه و handler
+        if (window.BrushApp?.setBrushClass) {
+          // اگر value فعلی نامعتبر است، برو روی 1
+          if (!selClass.value || !(selClass.value in (window.BrushApp.PALETTE || {}))) {
+            selClass.value = '1';
+          }
+          window.BrushApp.setBrushClass(selClass.value);
+          selClass.addEventListener('change', () => {
+            window.BrushApp.setBrushClass(selClass.value);
+          });
+        }
       }
-      elArea.value = Math.round(computeAreaM2(layer) * 100) / 100;
+
+      // 5) فرمِ مشخصات پُلی‌گان (Apply/Save All) — نسخه‌ی تمیز‌شده
+      wirePolygonPropsPanel();
     }
 
-    function applyForm(layer) {
-      if (!layer) return;
-      layer._props ||= {};
-      const p = layer._props;
-      p.uid = elUid.value || p.uid || layer?.feature?.properties?.uid;
-      p.uses_fruit = elUses.value || '';
-      p.code = elCode.value || '';
-      p.label = (elLabelSel.value === '__custom__') ? (elLabelCustom.value || '') : elLabelSel.value;
-      p.class_id = parseInt(elClass.value || '1', 10) || 1;
-      p.color = elColor.value || '#00ff00';
-      try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch { }
-    }
+    function wirePolygonPropsPanel() {
+      const elUid = $('polyUid');
+      const elUses = $('polyUsesFruit');
+      const elCode = $('polyCode');
+      const elArea = $('polyAreaM2');
+      const elLat = $('polyLat');
+      const elLon = $('polyLon');
+      const elLabelSel = $('polyLabelSelect');
+      const elCustomWrap = $('customLabelWrap');
+      const elLabelCustom = $('polyLabelCustom');
+      const elClass = $('polyClass');
+      const elColor = $('polyColor');
+      const btnApply = $('applyPropsBtn');
+      const btnSaveAll = $('savePolygonsBtn');
 
-    function wireAfterReady() {
+      if (!elUid) return; // فرم وجود ندارد
+
+      function showCustom() {
+        if (!elLabelSel || !elCustomWrap) return;
+        elCustomWrap.style.display = (elLabelSel.value === '__custom__') ? 'block' : 'none';
+      }
+      elLabelSel?.addEventListener('change', showCustom);
+
+      function computeAreaM2(layer) {
+        try {
+          const latlngs = layer.getLatLngs();
+          const rings = (Array.isArray(latlngs[0]) && Array.isArray(latlngs[0][0])) ? latlngs : [latlngs];
+          let sum = 0;
+          for (const poly of rings) {
+            const ring = (Array.isArray(poly) && Array.isArray(poly[0])) ? poly[0] : poly;
+            sum += L.GeometryUtil.geodesicArea(ring);
+          }
+          return Math.max(0, sum);
+        } catch { return 0; }
+      }
+
+      function populateForm(layer) {
+        if (!layer) return;
+        const p = layer._props || layer.feature?.properties || {};
+        elUid.value = p.uid || layer?.feature?.properties?.uid || String(layer?._leaflet_id || '');
+        elUses.value = p.uses_fruit || '';
+        elCode.value = p.code || '';
+        const label = p.label || '';
+        if (['veg', 'background', ''].includes(label)) {
+          elLabelSel.value = label;
+          elLabelCustom.value = '';
+        } else {
+          elLabelSel.value = '__custom__';
+          elLabelCustom.value = label;
+        }
+        showCustom();
+        elClass.value = (p.class_id != null ? p.class_id : 1);
+        elColor.value = p.color || '#00ff00';
+        try {
+          const ctr = layer.getBounds().getCenter();
+          elLat.value = Number(ctr.lat.toFixed(6));
+          elLon.value = Number(ctr.lng.toFixed(6));
+        } catch {
+          elLat.value = '';
+          elLon.value = '';
+        }
+        elArea.value = Math.round(computeAreaM2(layer) * 100) / 100;
+      }
+
+      function applyForm(layer) {
+        if (!layer) return;
+        layer._props ||= {};
+        const p = layer._props;
+        p.uid = elUid.value || p.uid || layer?.feature?.properties?.uid;
+        p.uses_fruit = elUses.value || '';
+        p.code = elCode.value || '';
+        p.label = (elLabelSel.value === '__custom__') ? (elLabelCustom.value || '') : elLabelSel.value;
+        p.class_id = parseInt(elClass.value || '1', 10) || 1;
+        p.color = elColor.value || '#00ff00';
+        try { layer.setStyle?.({ color: p.color, weight: 2 }); } catch {}
+      }
+
+      // hook انتخاب پُلی‌گان
       const App = window.BrushApp;
       const IO = window.BrushIO;
-
       const prev = App.onLayerSelected;
       App.onLayerSelected = (layer) => {
-        try { prev && prev(layer); } catch { }
+        try { prev && prev(layer); } catch {}
         populateForm(layer);
       };
       if (App.selectedLayer) populateForm(App.selectedLayer);
@@ -582,8 +658,10 @@
       });
     }
 
-    if (window.BrushApp?.ready) wireAfterReady();
-    else window.addEventListener('brush:ready', wireAfterReady, { once: true });
+    // یک‌بار برای همیشه
+    window.addEventListener('DOMContentLoaded', () => { main().catch(console.error); });
   })();
 </script>
+
+
 {% endblock %}
