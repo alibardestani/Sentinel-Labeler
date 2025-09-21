@@ -18,16 +18,8 @@
   .chip { display: inline-flex; align-items: center; gap: 6px; background: #101728; border: 1px solid #1e2639; padding: 4px 8px; border-radius: 999px }
   .num { font-variant-numeric: tabular-nums }
   .kbd { background: #0f1626; border: 1px solid #23304a; padding: 0 6px; border-radius: 6px; font-size: 12px }
-
-  /* tile loader overlay */
-  #tileLoader {
-    position: absolute; inset: 0; display: none; place-items: center;
-    background: rgba(13,19,32,.45); z-index: 1405;
-  }
-  #tileLoader .box {
-    padding: 10px 14px; border-radius: 10px; background: #0f1626; border: 1px solid #23304a;
-    color: #dbe3f4; font: 14px/1.2 system-ui, sans-serif;
-  }
+  #tileLoader { position: absolute; inset: 0; display: none; place-items: center; background: rgba(13,19,32,.45); z-index: 1405 }
+  #tileLoader .box { padding: 10px 14px; border-radius: 10px; background: #0f1626; border: 1px solid #23304a; color: #dbe3f4; font: 14px/1.2 system-ui, sans-serif }
 </style>
 {% endblock %}
 
@@ -36,7 +28,6 @@
   <div id="map" class="map">
     <canvas id="maskCanvas"></canvas>
     <canvas id="cursorCanvas"></canvas>
-    <!-- فول‌اسکرین لودر تعویض تایل -->
     <div id="tileLoader"><div class="box">Loading tile…</div></div>
   </div>
 </div>
@@ -126,10 +117,14 @@
     </label>
     <label>Class
       <select id="brushClassSelect" style="min-width:160px">
-        <option value="1">گردو (سبز)</option>
-        <option value="2">پسته (نارنجی)</option>
-        <option value="3">نخیلات (زرد)</option>
+        <option value="3">گردو (قهوه‌ای)</option>
+        <option value="4">(سبز پسته‌ای)پسته</option>
+        <option value="5">نخیلات (سبز تیره)</option>
+        <option value="6">مرکبات (نارنجی)</option>
+        <option value="7">سیب (زرد)</option>
         <option value="0">Background (پاک)</option>
+        <option value="1">پوشش گیاهی پرتراکم</option>
+        <option value="2">پوشش گیاهی کم تراکم</option>
       </select>
     </label>
     <button id="clearMask2" class="btn">Clear</button>
@@ -150,7 +145,6 @@
     <button id="tileNext" class="btn">▶</button>
     <select id="tileSelect"></select>
     <button id="tileGo" class="btn primary">Go</button>
-
     <label class="chip" style="gap:6px">
       <input id="autoFollowChk" type="checkbox" />
       Auto-follow tile
@@ -162,14 +156,16 @@
 {% block scripts %}
 <script>
   window.BRUSH_PALETTE = {
-    0: { name: 'Background', color: '#00000000' },
-    1: { name: 'گردو', color: '#00ff00ff' },
-    2: { name: 'پسته', color: '#ffa500ff' },
-    3: { name: 'نخیلات', color: '#ffff00ff' },
-    4: { name: 'انگور', color: '#9400d3ff' }
+    0: { name: 'Background',            color: '#00000000' },
+    1: { name: 'پوشش گیاهی پرتراکم',   color: '#106c2aff' },
+    2: { name: 'پوشش گیاهی کم تراکم',  color: '#7dd37aff' },
+    3: { name: 'گردو',                  color: '#8b5a2bff' },
+    4: { name: 'پسته',                  color: '#93c572ff' },
+    5: { name: 'نخیلات',                color: '#1b5e20ff' },
+    6: { name: 'مرکبات',                color: '#ff8c00ff' },
+    7: { name: 'سیب',                   color: '#ffd60aff' }
   };
 </script>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
 <script src="{{ url_for('static', filename='js/brush/core.js') }}" defer></script>
@@ -198,6 +194,7 @@
       const chkE = $('eraseChk2');
       const btnClear = $('clearMask2');
       const btnSave = $('savePng2');
+      const clsSel = $('brushClassSelect');
 
       btnPan?.addEventListener('click', () => {
         A.setMode('pan');
@@ -217,10 +214,19 @@
       });
       chkE?.addEventListener('change', () => A.setErase(!!chkE.checked));
       btnClear?.addEventListener('click', () => A.clearMask?.());
-      btnSave?.addEventListener('click', () => A.saveMask?.());
+      btnSave?.addEventListener('click', () => window.BrushIO?.saveCurrentTilePng?.({ alsoDownload: true }));
+
+      clsSel?.addEventListener('change', () => {
+        const v = parseInt(clsSel.value, 10);
+        if (Number.isFinite(v)) A.setBrushClass(v);
+      });
 
       rng?.dispatchEvent(new Event('input'));
       chkE?.dispatchEvent(new Event('change'));
+      if (clsSel) {
+        const v = parseInt(clsSel.value, 10);
+        if (Number.isFinite(v)) A.setBrushClass(v);
+      }
     }
 
     function wireGridControls() {
@@ -232,14 +238,12 @@
       const huds = [$('hudTileRC'), $('hudTileRC2')];
       const chk = $('autoFollowChk');
 
-      // HUD sync از core
       document.addEventListener('brush:tilechange', (ev) => {
         const { r, c } = ev.detail || { r: 0, c: 0 };
         huds.forEach(h => h && (h.textContent = `r${r + 1}×c${c + 1}`));
         if (sel) sel.value = `${r},${c}`;
       });
 
-      // کنترل‌ها
       prev?.addEventListener('click', () => { A.moveTile(0, -1, { wrap: true, fit: false }); });
       next?.addEventListener('click', () => { A.moveTile(0, +1, { wrap: true, fit: false }); });
       go?.addEventListener('click', () => {
@@ -248,11 +252,9 @@
         A.setActiveTile(r, c, { fit: false });
       });
 
-      // چک‌باکس Auto-follow
       chk?.addEventListener('change', () => {
         A.setAutoFollowTiles(!!chk.checked);
       });
-      // مقدار اولیه از core
       if (typeof A.grid?.autoFollow === 'boolean') {
         if (chk) chk.checked = !!A.grid.autoFollow;
       }
@@ -263,7 +265,6 @@
       sel.innerHTML = '';
       const list = await fetch('/api/grid/list?scene_id=' + encodeURIComponent(sceneId), { cache: 'no-store' }).then(r => r.json()).catch(() => null);
       if (!list || !list.ok) return;
-      // توجه: اگر rows/cols ≠ 3 هستند، بهتره sort را بر اساس App.grid.rows/cols انجام دهی
       list.items.sort((a, b) => (a.r * 100 + a.c) - (b.r * 100 + b.c));
       list.items.forEach(it => {
         const op = document.createElement('option');
@@ -281,8 +282,6 @@
       let r = await fetch(probe, { cache: 'no-store' });
       if (r.status === 200) return true;
       if (r.status !== 404) throw new Error('grid/list http ' + r.status);
-
-      // build tiles
       const sel = await fetch('/api/scenes/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -292,13 +291,11 @@
         let j = {}; try { j = await sel.json(); } catch {}
         throw new Error('scenes/select http ' + sel.status + ' ' + (j.error || ''));
       }
-
       r = await fetch(probe, { cache: 'no-store' });
       return r.status === 200;
     }
 
     function overrideTileLoadingToPageOverlay() {
-      // core.js متد setTileLoading را صدا می‌زند؛ ما آن را به لودر صفحه وصل می‌کنیم
       const A = window.BrushApp;
       if (!A) return;
       A.setTileLoading = function(on) {
@@ -313,11 +310,8 @@
         const t0 = Date.now();
         (function tick(){ if (pred()) return res(true); if (Date.now()-t0>ms) return rej(new Error('timeout')); setTimeout(tick, 60); })();
       });
-
-      // Wait for Leaflet + core.js
       await wait(() => window.L && window.BrushApp && typeof window.BrushApp.init === 'function');
 
-      // init — گرید ثابت، بدون auto-follow
       await window.BrushApp.init({
         mapId: 'map',
         maskId: 'maskCanvas',
@@ -329,10 +323,8 @@
         autoFollowTiles: false
       });
 
-      // لودر core را به لودر صفحه وصل کن
       overrideTileLoadingToPageOverlay();
 
-      // scene id
       const sc = await fetch('/api/scenes/current', { cache: 'no-store' }).then(r => r.json()).catch(() => null);
       if (!sc || !sc.ok || !sc.scene) { alert('No scene selected'); return; }
       const sid = sc.scene.id;
@@ -341,7 +333,13 @@
       if (!ready) { alert('Tiles not ready for this scene'); return; }
 
       await populateGridDropdown(sid);
+
       window.BrushApp.setActiveTile(0, 0, { fit: true });
+
+      if (window.BrushIO?.reloadPolygonsForScene) {
+        try { await window.BrushIO.reloadPolygonsForScene(); }
+        catch (e) { console.error('polygons:load:error', e); }
+      }
     }
 
     document.addEventListener('DOMContentLoaded', async () => {

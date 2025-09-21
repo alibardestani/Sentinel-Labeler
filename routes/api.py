@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, make_response, request, send_from_director
 import numpy as np
 from models import db, User, AssignedTile
 from flask import session
+from services.polygons import load_polygons_dict
 
 from config import settings
 from services.masks import load_mask, mask_bytes, save_mask_bytes
