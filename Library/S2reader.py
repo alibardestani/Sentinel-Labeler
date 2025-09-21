@@ -1,5 +1,11 @@
 from __future__ import annotations
 import time
+from rasterio.warp import calculate_default_transform
+from rasterio.transform import array_bounds, from_bounds
+from rasterio.crs import CRS
+from rasterio.enums import ColorInterp
+from pyproj import Transformer
+
 """
 Sentinel-2 product reader utilities.
 
@@ -70,9 +76,10 @@ def _resampling_from_str(name: str) -> Resampling:
 
 @dataclass
 class BandRef:
-    band: str
-    res_m: int
-    path_in_zip: str
+    band: str  # e.g., "B02"
+    res_m: int  # 10, 20, 60
+    path_in_zip: str  # internal path (.jp2) inside the ZIP
+
 
 class SentinelProductReader:
     """Read Sentinel-2 Level-2A bands and masks directly from a .zip product.
@@ -112,44 +119,28 @@ class SentinelProductReader:
             raise FileNotFoundError(self.zip_path)
         self._band_index: Dict[Tuple[str, int], BandRef] = {}
         self._scl_path: Optional[str] = None
-        
-        if hasattr(self, "_index_archive"):
-            self._index_archive()
-        else:
-            self.index_archive()
+        self._index_archive()
 
     # ------------------------- Discovery & Indexing ------------------------- #
     def _index_archive(self) -> None:
-        self.index_archive()
-        
-    def index_archive(self) -> None:
-        band_re = re.compile(r"_B(\d{2}|8A)_(10|20|60)m\.jp2$", re.IGNORECASE)
-        scl_re  = re.compile(r"_SCL_(10|20|60)m\.jp2$", re.IGNORECASE)
+        """Scan the ZIP and index band JP2s and the SCL raster.
 
+        A Sentinel-2 L2A ZIP typically contains JP2 files named like:
+        ``..._B02_10m.jp2`` or ``..._SCL_20m.jp2`` within GRANULE/.../IMG_DATA/.
+        This method builds a mapping (band, res_m) -> BandRef, and stores the SCL
+        path if found.
+        """
+        band_re = re.compile(r"_B(\d{2}|8A)_(10|20|60)m\.jp2$")
+        scl_re = re.compile(r"_SCL_(10|20|60)m\.jp2$")
         with zipfile.ZipFile(self.zip_path, "r") as z:
             for name in z.namelist():
-                base = os.path.basename(name)
-
-                # --- رد کردن آشغال‌های macOS ---
-                if "/__MACOSX/" in name or base.startswith("._"):
-                    continue
-
-                # فقط JP2های واقعی
-                if not name.lower().endswith(".jp2"):
-                    continue
-
-                m_band = band_re.search(name)
-                if m_band:
-                    b, res = m_band.groups()
-                    band   = f"B{b}"
-                    res_m  = int(res)
+                if band_re.search(name):
+                    b, res = band_re.search(name).groups()
+                    band = f"B{b}"
+                    res_m = int(res)
                     self._band_index[(band, res_m)] = BandRef(band, res_m, name)
-                    continue
-
-                m_scl = scl_re.search(name)
-                if m_scl:
+                elif scl_re.search(name):
                     self._scl_path = name
-
 
     # ------------------------------ Utilities ------------------------------ #
     def _vsizip(self, inner: str) -> str:
@@ -749,11 +740,155 @@ class SentinelProductReader:
 
         return out_profile
     
+    # def export_esri_aligned_rgba_tif(
+    #     self,
+    #     out_tif: str,
+    #     resolution: Optional[int] = None,
+    # ) -> dict:
+    #     """Export an 8-bit RGBA GeoTIFF aligned for ESRI basemaps via EPSG:3857.
+
+    #     RGBA composition:
+    #       R = B04, G = B03, B = B02, A = valid-data mask (0 outside reprojection footprint).
+    #     Steps:
+    #       1) Read B04/B03/B02 at desired native resolution (if given).
+    #       2) Reproject UTM -> EPSG:3857 (nearest, dst_nodata=NaN).
+    #       3) Reproject 3857 -> EPSG:4326 (nearest, preserve NaN).
+    #       4) Per-band 2–98% percentile linear stretch -> uint8 for RGB.
+    #       5) Alpha = 255 where all three channels are valid, else 0 (transparent).
+    #       6) Write a 4-band GeoTIFF (uint8, EPSG:4326) and set color interpretation
+    #          to (red, green, blue, alpha).
+
+    #     Parameters
+    #     ----------
+    #     out_tif : str
+    #         Output file path (will be overwritten).
+    #     resolution : int, optional
+    #         10/20/60 to pick a specific native JP2 variant; otherwise uses finest available.
+
+    #     Returns
+    #     -------
+    #     profile : dict
+    #         Raster profile used to write the GeoTIFF.
+    #     """
+    #     from rasterio.warp import calculate_default_transform
+    #     from rasterio.transform import array_bounds
+    #     from rasterio.crs import CRS
+    #     from rasterio.enums import Resampling, ColorInterp
+
+    #     def stretch_band(band, low_pct=2, high_pct=98):
+    #         p_low = np.nanpercentile(band, low_pct)
+    #         p_high = np.nanpercentile(band, high_pct)
+    #         stretched = (band - p_low) / max(1e-6, (p_high - p_low))
+    #         return np.clip(stretched, 0, 1)
+
+    #     with rasterio.Env():
+    #         # --- Read R, G, B at native/desired res
+    #         ds_r, _ = self._open_ref("B04", resolution)
+    #         with ds_r:
+    #             r = ds_r.read(1).astype(np.float32)
+    #             src_crs = ds_r.crs
+    #             if src_crs is None:
+    #                 raise ValueError("Source CRS is missing on B04.")
+    #             src_transform = ds_r.transform
+    #             nodata_r = getattr(ds_r, "nodata", None) or (ds_r.nodatavals[0] if ds_r.nodatavals else None)
+
+    #         ds_g, _ = self._open_ref("B03", resolution)
+    #         with ds_g:
+    #             g = ds_g.read(1).astype(np.float32)
+    #             if ds_g.crs != src_crs:
+    #                 raise ValueError("CRS mismatch between B03 and B04.")
+    #             nodata_g = getattr(ds_g, "nodata", None) or (ds_g.nodatavals[0] if ds_g.nodatavals else None)
+
+    #         ds_b, _ = self._open_ref("B02", resolution)
+    #         with ds_b:
+    #             b = ds_b.read(1).astype(np.float32)
+    #             if ds_b.crs != src_crs:
+    #                 raise ValueError("CRS mismatch between B02 and B04.")
+    #             nodata_b = getattr(ds_b, "nodata", None) or (ds_b.nodatavals[0] if ds_b.nodatavals else None)
+
+    #         # --- UTM -> EPSG:3857 (nearest, dst_nodata=NaN)
+    #         crs_3857 = CRS.from_epsg(3857)
+    #         H, W = ds_r.height, ds_r.width
+    #         left, bottom, right, top = ds_r.bounds
+    #         tr_3857, w_3857, h_3857 = calculate_default_transform(
+    #             src_crs, crs_3857, W, H, left, bottom, right, top
+    #         )
+    #         data_3857 = np.empty((3, h_3857, w_3857), dtype=np.float32)
+    #         rasterio.warp.reproject(
+    #             source=r, destination=data_3857[0],
+    #             src_transform=src_transform, src_crs=src_crs,
+    #             dst_transform=tr_3857,   dst_crs=crs_3857,
+    #             resampling=Resampling.nearest,
+    #             src_nodata=nodata_r, dst_nodata=np.nan
+    #         )
+    #         rasterio.warp.reproject(
+    #             source=g, destination=data_3857[1],
+    #             src_transform=ds_g.transform, src_crs=ds_g.crs,
+    #             dst_transform=tr_3857,       dst_crs=crs_3857,
+    #             resampling=Resampling.nearest,
+    #             src_nodata=nodata_g, dst_nodata=np.nan
+    #         )
+    #         rasterio.warp.reproject(
+    #             source=b, destination=data_3857[2],
+    #             src_transform=ds_b.transform, src_crs=ds_b.crs,
+    #             dst_transform=tr_3857,       dst_crs=crs_3857,
+    #             resampling=Resampling.nearest,
+    #             src_nodata=nodata_b, dst_nodata=np.nan
+    #         )
+
+    #         # --- 3857 -> EPSG:4326 (nearest)
+    #         crs_4326 = CRS.from_epsg(4326)
+    #         l2, b2, r2, t2 = array_bounds(h_3857, w_3857, tr_3857)
+    #         tr_4326, w_4326, h_4326 = calculate_default_transform(
+    #             crs_3857, crs_4326, w_3857, h_3857, l2, b2, r2, t2
+    #         )
+    #         data_4326 = np.empty((3, h_4326, w_4326), dtype=np.float32)
+    #         for i in range(3):
+    #             rasterio.warp.reproject(
+    #                 source=data_3857[i], destination=data_4326[i],
+    #                 src_transform=tr_3857,  src_crs=crs_3857,
+    #                 dst_transform=tr_4326,  dst_crs=crs_4326,
+    #                 resampling=Resampling.nearest,
+    #                 src_nodata=np.nan, dst_nodata=np.nan
+    #             )
+
+    #     # --- Alpha: transparent where any channel is NaN (outside/rotated edges)
+    #     valid = (~np.isnan(data_4326[0])) & (~np.isnan(data_4326[1])) & (~np.isnan(data_4326[2]))
+    #     alpha8 = np.where(valid, 255, 0).astype(np.uint8)
+
+    #     # --- Stretch RGB to uint8
+    #     r8 = (stretch_band(data_4326[0]) * 255.0).round().astype(np.uint8); r8[~valid] = 0
+    #     g8 = (stretch_band(data_4326[1]) * 255.0).round().astype(np.uint8); g8[~valid] = 0
+    #     b8 = (stretch_band(data_4326[2]) * 255.0).round().astype(np.uint8); b8[~valid] = 0
+
+    #     rgba8 = np.stack([r8, g8, b8, alpha8], axis=0)
+
+    #     # --- Write RGBA GeoTIFF (no ALPHA creation option; set color interpretation instead)
+    #     out_profile = {
+    #         "driver": "GTiff",
+    #         "height": h_4326,
+    #         "width": w_4326,
+    #         "count": 4,
+    #         "dtype": "uint8",
+    #         "crs": crs_4326,
+    #         "transform": tr_4326,
+    #         "compress": "deflate",
+    #         "predictor": 1,
+    #         "interleave": "pixel",
+    #         "photometric": "RGB",
+    #     }
+    #     with rasterio.open(out_tif, "w", **out_profile) as dst:
+    #         dst.write(rgba8, indexes=[1, 2, 3, 4])
+    #         # Mark bands as RGBA so most software will treat the 4th as alpha:
+    #         dst.colorinterp = (ColorInterp.red, ColorInterp.green, ColorInterp.blue, ColorInterp.alpha)
+
+    #     return out_profile
+    
     def export_esri_aligned_rgba_tif(
-        self,
-        out_tif: str,
-        resolution: Optional[int] = None,
-    ) -> dict:
+            self,
+            out_tif: str,
+            resolution: Optional[int] = None,
+        ) -> dict:
         """Export an 8-bit RGBA GeoTIFF aligned for ESRI basemaps via EPSG:3857.
 
         RGBA composition:
@@ -778,11 +913,65 @@ class SentinelProductReader:
         -------
         profile : dict
             Raster profile used to write the GeoTIFF.
-        """
-        from rasterio.warp import calculate_default_transform
-        from rasterio.transform import array_bounds
-        from rasterio.crs import CRS
-        from rasterio.enums import Resampling, ColorInterp
+        """        
+        
+
+        # def _stretch01(b, low=2, high=98):
+        #     p_lo = np.nanpercentile(b, low)
+        #     p_hi = np.nanpercentile(b, high)
+        #     denom = max(1e-6, (p_hi - p_lo))
+        #     x = (b - p_lo) / denom
+        #     return np.clip(x, 0.0, 1.0)
+
+        # with rasterio.Env():
+        #     # خواندن باندهای طبیعی Sentinel-2
+        #     ds_r, _ = self._open_ref("B04", resolution)
+        #     ds_g, _ = self._open_ref("B03", resolution)
+        #     ds_b, _ = self._open_ref("B02", resolution)
+        #     with ds_r, ds_g, ds_b:
+        #         src_crs = ds_r.crs
+        #         if src_crs is None:
+        #             raise ValueError("Source CRS is missing on B04.")
+        #         if ds_g.crs != src_crs or ds_b.crs != src_crs:
+        #             raise ValueError("CRS mismatch between bands.")
+
+        #         r = ds_r.read(1).astype(np.float32)
+        #         g = ds_g.read(1).astype(np.float32)
+        #         b = ds_b.read(1).astype(np.float32)
+
+        #         nodata_r = getattr(ds_r, "nodata", None) or (ds_r.nodatavals[0] if ds_r.nodatavals else None)
+        #         nodata_g = getattr(ds_g, "nodata", None) or (ds_g.nodatavals[0] if ds_g.nodatavals else None)
+        #         nodata_b = getattr(ds_b, "nodata", None) or (ds_b.nodatavals[0] if ds_b.nodatavals else None)
+
+        #         # --- UTM → EPSG:3857 (فقط یک ری‌پروجکت پیکسلی)
+        #         crs_3857 = CRS.from_epsg(3857)
+        #         left, bottom, right, top = ds_r.bounds
+        #         tr_3857, w_3857, h_3857 = calculate_default_transform(
+        #             src_crs, crs_3857, ds_r.width, ds_r.height, left, bottom, right, top
+        #         )
+
+        #         rgb_3857 = np.empty((3, h_3857, w_3857), dtype=np.float32)
+        #         reproject(
+        #             r, rgb_3857[0],
+        #             src_transform=ds_r.transform, src_crs=src_crs,
+        #             dst_transform=tr_3857,       dst_crs=crs_3857,
+        #             resampling=Resampling.nearest,
+        #             src_nodata=nodata_r, dst_nodata=np.nan
+        #         )
+        #         reproject(
+        #             g, rgb_3857[1],
+        #             src_transform=ds_g.transform, src_crs=src_crs,
+        #             dst_transform=tr_3857,       dst_crs=crs_3857,
+        #             resampling=Resampling.nearest,
+        #             src_nodata=nodata_g, dst_nodata=np.nan
+        #         )
+        #         reproject(
+        #             b, rgb_3857[2],
+        #             src_transform=ds_b.transform, src_crs=src_crs,
+        #             dst_transform=tr_3857,       dst_crs=crs_3857,
+        #             resampling=Resampling.nearest,
+        #             src_nodata=nodata_b, dst_nodata=np.nan
+        #         )
 
         def stretch_band(band, low_pct=2, high_pct=98):
             p_low = np.nanpercentile(band, low_pct)
@@ -845,41 +1034,29 @@ class SentinelProductReader:
                 src_nodata=nodata_b, dst_nodata=np.nan
             )
 
-            # --- 3857 -> EPSG:4326 (nearest)
+            # --- مرزهای 3857 → 4326 و ساخت ترنسفورم 4326 با همان W/H
+            left_m, bottom_m, right_m, top_m = array_bounds(h_3857, w_3857, tr_3857)
+            to_wgs84 = Transformer.from_crs(crs_3857, CRS.from_epsg(4326), always_xy=True)
+            west, south = to_wgs84.transform(left_m,  bottom_m)
+            east, north = to_wgs84.transform(right_m, top_m)
             crs_4326 = CRS.from_epsg(4326)
-            l2, b2, r2, t2 = array_bounds(h_3857, w_3857, tr_3857)
-            tr_4326, w_4326, h_4326 = calculate_default_transform(
-                crs_3857, crs_4326, w_3857, h_3857, l2, b2, r2, t2
-            )
-            data_4326 = np.empty((3, h_4326, w_4326), dtype=np.float32)
-            for i in range(3):
-                rasterio.warp.reproject(
-                    source=data_3857[i], destination=data_4326[i],
-                    src_transform=tr_3857,  src_crs=crs_3857,
-                    dst_transform=tr_4326,  dst_crs=crs_4326,
-                    resampling=Resampling.nearest,
-                    src_nodata=np.nan, dst_nodata=np.nan
-                )
+            tr_4326 = from_bounds(west, south, east, north, w_3857, h_3857)
 
-        # --- Alpha: transparent where any channel is NaN (outside/rotated edges)
-        valid = (~np.isnan(data_4326[0])) & (~np.isnan(data_4326[1])) & (~np.isnan(data_4326[2]))
-        alpha8 = np.where(valid, 255, 0).astype(np.uint8)
+        # --- Stretch → uint8 + آلفا
+        valid = (~np.isnan(data_3857[0])) & (~np.isnan(data_3857[1])) & (~np.isnan(data_3857[2]))
+        r8 = (stretch_band(data_3857[0]) * 255.0).round().astype(np.uint8); r8[~valid] = 0
+        g8 = (stretch_band(data_3857[1]) * 255.0).round().astype(np.uint8); g8[~valid] = 0
+        b8 = (stretch_band(data_3857[2]) * 255.0).round().astype(np.uint8); b8[~valid] = 0
+        a8 = np.where(valid, 255, 0).astype(np.uint8)
+        rgba8 = np.stack([r8, g8, b8, a8], axis=0)
 
-        # --- Stretch RGB to uint8
-        r8 = (stretch_band(data_4326[0]) * 255.0).round().astype(np.uint8); r8[~valid] = 0
-        g8 = (stretch_band(data_4326[1]) * 255.0).round().astype(np.uint8); g8[~valid] = 0
-        b8 = (stretch_band(data_4326[2]) * 255.0).round().astype(np.uint8); b8[~valid] = 0
-
-        rgba8 = np.stack([r8, g8, b8, alpha8], axis=0)
-
-        # --- Write RGBA GeoTIFF (no ALPHA creation option; set color interpretation instead)
         out_profile = {
             "driver": "GTiff",
-            "height": h_4326,
-            "width": w_4326,
-            "count": 4,
-            "dtype": "uint8",
-            "crs": crs_4326,
+            "height": h_3857,
+            "width":  w_3857,
+            "count":  4,
+            "dtype":  "uint8",
+            "crs":    crs_4326,
             "transform": tr_4326,
             "compress": "deflate",
             "predictor": 1,
@@ -888,11 +1065,11 @@ class SentinelProductReader:
         }
         with rasterio.open(out_tif, "w", **out_profile) as dst:
             dst.write(rgba8, indexes=[1, 2, 3, 4])
-            # Mark bands as RGBA so most software will treat the 4th as alpha:
             dst.colorinterp = (ColorInterp.red, ColorInterp.green, ColorInterp.blue, ColorInterp.alpha)
 
         return out_profile
-    
+
+
     def export_esri_aligned_rgba_grid_3x3(
         self,
         out_dir: str,
