@@ -69,6 +69,28 @@ def api_polygons_get():
     # اگر چیزی نبود، خالی بده (FeatureCollection خالی)
     return jsonify({"type": "FeatureCollection", "features": []})
 
+from flask import Blueprint, request, jsonify
+from pathlib import Path
+import time
+
+@api_bp.route("/api/masks/save_tile_png", methods=["POST"])
+def save_tile_png():
+    scene_id = request.form.get("scene_id", "unknown")
+    r = request.form.get("r", "0")
+    c = request.form.get("c", "0")
+    f = request.files.get("file")
+    if not f:
+      return jsonify(ok=False, error="file missing"), 400
+
+    base = Path("output/masks") / scene_id / f"r{r}_c{c}"
+    base.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    name = f"scene-{scene_id}_r{r}_c{c}_{stamp}.png"
+    outp = base / name
+    f.save(outp)
+
+    return jsonify(ok=True, path=str(outp))
+
 # --- بقیه APIها بدون تغییر ---
 from io import BytesIO
 from PIL import Image
