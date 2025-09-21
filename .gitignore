@@ -5,7 +5,6 @@
 *.tif
 *.tiff
 
-
 # ML / DL model weights
 *.pt
 *.pth
@@ -33,6 +32,10 @@
 /checkpoints/
 /logs/
 /tmp/
+
+# --- local data (never push to repo) ---
+/data/
+/data/**
 
 # cache / temps
 __pycache__/
