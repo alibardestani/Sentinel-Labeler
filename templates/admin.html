@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Admin Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --pane: #0f1626;
+      --line: #23304a;
+      --text: #e6eefc;
+      --muted: #9aa4b2;
+      --primary: #375dfb;
+      --primary-2: #2446d6;
+      --ok-bg: #0d2515;
+      --ok-br: #174a2a;
+      --err-bg: #2a1212;
+      --err-br: #5a2525;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', 'Noto Sans', Arial
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+      display: grid;
+      gap: 16px
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--pane);
+      border-radius: 12px;
+      padding: 14px
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0 0 10px 0
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    .grid {
+      display: grid;
+      gap: 12px
+    }
+
+    .two {
+      display: grid;
+      gap: 12px
+    }
+
+    @media(min-width:900px) {
+      .two {
+        grid-template-columns: 1fr 1fr
+      }
+    }
+
+    input,
+    select,
+    button {
+      font: inherit;
+      color: inherit;
+      background: #0b1324;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      outline: none
+    }
+
+    input::placeholder {
+      color: #778199
+    }
+
+    label {
+      display: grid;
+      gap: 6px
+    }
+
+    .btn {
+      cursor: pointer;
+      background: #101a33
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      border-color: var(--primary-2)
+    }
+
+    .btn.primary:hover {
+      filter: brightness(1.05)
+    }
+
+    .btn:disabled {
+      opacity: .6;
+      cursor: not-allowed
+    }
+
+    .pill {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse
+    }
+
+    .table th,
+    .table td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 14px
+    }
+
+    .flash {
+      padding: 8px 10px;
+      border-radius: 8px
+    }
+
+    .flash.ok {
+      background: var(--ok-bg);
+      border: 1px solid var(--ok-br)
+    }
+
+    .flash.error {
+      background: var(--err-bg);
+      border: 1px solid var(--err-br)
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h2 style="margin:0">Admin Dashboard</h2>
+        <div class="muted">Manage users & assign whole Sentinel scenes</div>
+      </div>
+      <div class="pill">
+        <a class="btn" href="{{ url_for('pages_bp.polygon') }}">← App</a>
+        <a class="btn" href="{{ url_for('auth_bp.logout') }}">Logout</a>
+      </div>
+    </header>
+
+    {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+    <div class="grid">
+      {% for cat, msg in msgs %}
+      <div class="flash {{cat}}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <div class="two">
+      <!-- Create User -->
+      <div class="card grid">
+        <h3>Create User</h3>
+        <form method="post" action="{{ url_for('admin_bp.users_create') }}" class="grid" style="max-width:360px">
+          <input name="email" type="email" placeholder="email" required />
+          <input name="password" type="text" placeholder="password" required />
+          <label><input type="checkbox" name="is_admin" /> is admin</label>
+          <button class="btn primary" type="submit">Create</button>
+        </form>
+      </div>
+
+      <!-- Assign Scene (whole tile) -->
+      <div class="card grid">
+        <h3>Assign Scene to User</h3>
+        <form id="assignForm" method="post" action="{{ url_for('admin_bp.tiles_assign') }}" class="grid" style="max-width:700px">
+          <label>User
+            <select name="user_id" required>
+              {% if users and users|length %}
+              {% for u in users %}
+              <option value="{{u.id}}">{{u.email}}{% if u.is_admin %} (admin){% endif %}</option>
+              {% endfor %}
+              {% else %}
+              <option value="">— no users —</option>
+              {% endif %}
+            </select>
+          </label>
+
+          <label>Scene
+            <!-- پر می‌شود از /api/scenes/list -->
+            <select id="sceneSelect" name="scene_id" required style="min-width:320px">
+              <option value="">Loading…</option>
+            </select>
+          </label>
+
+          <div class="pill">
+            <input name="scene_name" id="sceneName" placeholder="scene_name (auto-filled on select)"
+              style="min-width:280px" />
+            <input name="label" placeholder="label (optional)" style="min-width:200px" />
+          </div>
+
+          <button class="btn" type="submit">Assign</button>
+          <div class="muted">
+            صحنه‌ها از پوشهٔ داده‌ها خوانده می‌شوند (همان API <code>/api/scenes/list</code>).
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Users</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Email</th>
+            <th>Admin</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if users and users|length %}
+          {% for u in users %}
+          <tr>
+            <td>{{u.id}}</td>
+            <td>{{u.email}}</td>
+            <td>{{'yes' if u.is_admin else 'no'}}</td>
+            <td>{{u.created_at}}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="4" class="muted">No users</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Assigned Scenes</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>User</th>
+            <th>Scene</th>
+            <th>Label</th>
+            <th>Assigned At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if tiles and tiles|length %}
+          {% for t,u in tiles %}
+          <tr>
+            <td>{{t.id}}</td>
+            <td>{{u.email}}</td>
+            <td>
+              <div>{{t.scene_id}}</div>
+              {% if t.scene_name %}<div class="muted">{{t.scene_name}}</div>{% endif %}
+            </td>
+            <td>{{t.label or ''}}</td>
+            <td>{{t.created_at}}</td>
+          </tr>
+          {% endfor %}
+          {% else %}
+          <tr>
+            <td colspan="5" class="muted">No assigned scenes</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // پر کردن لیست صحنه‌ها از /api/scenes/list
+    (async function fillScenes() {
+      const sel = document.getElementById('sceneSelect');
+      const sceneName = document.getElementById('sceneName');
+      try {
+        const r = await fetch('/api/scenes/list', { cache: 'no-store' });
+        const j = await r.json();
+        const items = (j && j.items) || [];
+        sel.innerHTML = '';
+        if (!items.length) {
+          sel.innerHTML = '<option value="">— no scenes found —</option>';
+          return;
+        }
+        // option value = scene.id ؛ متن خوانا: name + tile/date
+        for (const it of items) {
+          const tag = [it.tile || '', it.date || ''].filter(Boolean).join(' • ');
+          const op = document.createElement('option');
+          op.value = it.id;
+          op.textContent = tag ? `${it.name} — ${tag}` : it.name;
+          op.dataset.name = it.name;
+          sel.appendChild(op);
+        }
+        // on change: پر کردن scene_name پیش‌فرض
+        const syncName = () => {
+          const o = sel.options[sel.selectedIndex];
+          if (!o) return;
+          if (!sceneName.value) sceneName.value = o.dataset.name || o.textContent || '';
+        };
+        sel.addEventListener('change', syncName);
+        syncName();
+      } catch (e) {
+        sel.innerHTML = '<option value="">— error loading scenes —</option>';
+        console.error(e);
+      }
+    })();
+  </script>
+</body>
+
+</html>

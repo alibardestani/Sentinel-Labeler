@@ -167,7 +167,7 @@
       <form id="loginForm"
             class="form-grid"
             method="post"
-            action="{{ url_for('login', next=request.args.get('next', '') ) }}"
+            action="{{ url_for('auth_bp.login', next=request.args.get('next','')) }}"
             autocomplete="on">
         <input type="hidden" name="next" value="{{ request.args.get('next','') }}"/>
 

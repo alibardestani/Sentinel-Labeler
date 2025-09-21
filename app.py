@@ -1,135 +1,75 @@
 # app.py
 from __future__ import annotations
 
-from pathlib import Path
-from functools import wraps
-from urllib.parse import urlparse, urljoin
-
-from flask import (
-    Flask, render_template, redirect, url_for,
-    request, session, jsonify, send_file, abort
-)
-from services.polygons_bootstrap import ensure_geojson_from_shapefile
-
-
+from flask import Flask, session
+from flask_migrate import Migrate
+from models import db, User
 from config import settings
-from routes.api import api_bp
-
-app = Flask(__name__, static_folder="static", template_folder="templates")
-app.config["SECRET_KEY"] = "change-this-in-prod-please"
-app.config.update(
-    OUTPUT_DIR=str(settings.OUTPUT_DIR),
-    S2_RGB_TIF=str(settings.S2_RGB_TIF),
-)
-
-app.register_blueprint(api_bp)
-
-MASK_ROOT = Path("masks")
-
-DEMO_EMAIL = "demo@example.com"
-DEMO_PASS = "demo1234"
 
 
-def is_safe_url(target: str) -> bool:
-    if not target:
-        return False
-    ref_url = urlparse(request.host_url)
-    test_url = urlparse(urljoin(request.host_url, target))
-    return (test_url.scheme in ("http", "https") and ref_url.netloc == test_url.netloc)
+def create_app() -> Flask:
+    app = Flask(__name__, static_folder="static", template_folder="templates")
+    app.config["SECRET_KEY"] = "change-this-in-prod-please"
 
+    # ---- Config ----
+    app.config.update(
+        OUTPUT_DIR=str(settings.OUTPUT_DIR),
+        S2_RGB_TIF=str(settings.S2_RGB_TIF),
+        SQLALCHEMY_DATABASE_URI=(
+            "mysql+pymysql://root:root@localhost/sen2"
+            "?unix_socket=/Applications/MAMP/tmp/mysql/mysql.sock"
+            "&charset=utf8mb4"
+        ),
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 1800},
+    )
 
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not session.get("user"):
-            return redirect(url_for("login", next=request.path))
-        return fn(*args, **kwargs)
-    return wrapper
+    # ---- DB ----
+    db.init_app(app)
+    Migrate(app, db)
 
+    # ---- Blueprints ----
+    from routes.api import api_bp
+    from routes.masks_api import bp_masks
+    from routes.polygons_api import bp_polygons
+    from routes.auth import auth_bp
+    from routes.pages import pages_bp
+    from routes.admin import admin_bp
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "GET":
-        if session.get("user"):
-            next_url = request.args.get("next") or url_for("polygon")
-            return redirect(next_url)
-        return render_template("login.html")
+    app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(bp_masks, url_prefix="/api/masks")
+    app.register_blueprint(bp_polygons, url_prefix="/api/polygons")
+    app.register_blueprint(auth_bp)          # /login, /logout
+    app.register_blueprint(pages_bp)         # /, /brush, /polygon, /no-access
+    app.register_blueprint(admin_bp, url_prefix="/admin")
 
-    data = request.get_json(silent=True) or request.form
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    # ---- Context Processor (جهت دسترسی به کاربر در تمام قالب‌ها) ----
+    @app.context_processor
+    def inject_current_user():
+        uid = session.get("user_id")
+        u = User.query.get(uid) if uid else None
+        return {
+            "current_user": u,
+            "is_admin": bool(getattr(u, "is_admin", False)) if u else False,
+        }
 
-    if email == DEMO_EMAIL and password == DEMO_PASS:
-        session["user"] = email
-        if request.is_json:
-            return jsonify(ok=True)
-        next_url = data.get("next") or request.args.get("next") or url_for("polygon")
-        if not is_safe_url(next_url):
-            next_url = url_for("polygon")
-        return redirect(next_url)
+    # ---- (اختیاری) sanity checks و Bootstrap پلیگان‌ها ----
+    from services.polygons_bootstrap import ensure_geojson_from_shapefile
+    with app.app_context():
+        try:
+            db.session.execute(db.text("SELECT 1"))
+            print("MySQL connection OK ✅")
+        except Exception as e:
+            print("MySQL connection ERROR ❌", e)
 
-    if request.is_json:
-        return jsonify(ok=False, error="invalid credentials"), 401
-    return render_template("login.html", error="Invalid email or password"), 401
+        try:
+            ensure_geojson_from_shapefile()
+        except Exception as e:
+            print("[polygons] bootstrap failed:", e)
 
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-@app.route("/")
-def index():
-    if session.get("user"):
-        return redirect(url_for("polygon"))
-    return redirect(url_for("login"))
-
-
-@app.route("/polygon")
-@login_required
-def polygon():
-    return render_template("polygon.html")
-
-
-@app.route("/brush")
-def brush():
-    return render_template("brush.html")
-
-
-@app.post("/api/masks/save")
-def api_masks_save():
-    tile_id = request.args.get("tile_id", "")
-    uid = request.args.get("uid", "")
-    f = request.files.get("file")
-    if not (tile_id and uid and f):
-        return {"error": "missing tile_id/uid/file"}, 400
-
-    safe_tile = "".join(c if c.isalnum() or c in "._-|" else "_" for c in tile_id)[:128]
-    safe_uid = "".join(c if c.isalnum() or c in "._-|" else "_" for c in uid)[:128]
-
-    outdir = MASK_ROOT / safe_tile
-    outdir.mkdir(parents=True, exist_ok=True)
-    outpath = outdir / f"{safe_uid}.png"
-    f.save(outpath)
-    return {"ok": True, "path": str(outpath)}
-
-
-@app.get("/api/masks/get")
-def api_masks_get():
-    tile_id = request.args.get("tile_id", "")
-    uid = request.args.get("uid", "")
-    if not (tile_id and uid):
-        return abort(400)
-
-    safe_tile = "".join(c if c.isalnum() or c in "._-|" else "_" for c in tile_id)[:128]
-    safe_uid = "".join(c if c.isalnum() or c in "._-|" else "_" for c in uid)[:128]
-    path = MASK_ROOT / safe_tile / f"{safe_uid}.png"
-    if not path.exists():
-        return abort(404)
-    return send_file(path, mimetype="image/png")
+    return app
 
 
 if __name__ == "__main__":
-    ensure_geojson_from_shapefile()
+    app = create_app()
     app.run(host="127.0.0.1", port=5000, debug=True)

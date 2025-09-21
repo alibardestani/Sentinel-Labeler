@@ -1,1 +1,2 @@
-# empty package marker
+# routes/__init__.py
+# empty on purpose
