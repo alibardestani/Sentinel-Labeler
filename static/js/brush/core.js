@@ -1,7 +1,7 @@
 // static/js/brush/core.js
 console.log("[BRUSH:core] loaded");
 
-;(() => {
+; (() => {
   // جلوگیری از دوبار لود
   if (window.BrushApp && window.BrushApp.__coreLoaded) {
     console.warn("[BRUSH:core] already loaded; skipping duplicate load");
@@ -9,10 +9,10 @@ console.log("[BRUSH:core] loaded");
   }
 
   let DBG = true;
-  const log  = (...a) => DBG && console.debug("[BRUSH:core]", ...a);
-  const warn = (...a) => DBG && console.warn ("[BRUSH:core]", ...a);
-  const err  = (...a) => DBG && console.error("[BRUSH:core]", ...a);
-  const $    = (id) => document.getElementById(id);
+  const log = (...a) => DBG && console.debug("[BRUSH:core]", ...a);
+  const warn = (...a) => DBG && console.warn("[BRUSH:core]", ...a);
+  const err = (...a) => DBG && console.error("[BRUSH:core]", ...a);
+  const $ = (id) => document.getElementById(id);
 
   window.addEventListener("error", (e) => err("window.error", e?.message, e?.error));
   window.addEventListener("unhandledrejection", (e) => err("unhandledrejection", e?.reason));
@@ -51,9 +51,9 @@ console.log("[BRUSH:core] loaded");
   // ---- Palette ----
   const DEFAULT_PALETTE = {
     0: { name: "Background", color: "#00000000" },
-    1: { name: "گردو",      color: "#00ff00ff" },
-    2: { name: "پسته",      color: "#ffa500ff" },
-    3: { name: "نخیلات",    color: "#ffff00ff" },
+    1: { name: "گردو", color: "#00ff00ff" },
+    2: { name: "پسته", color: "#ffa500ff" },
+    3: { name: "نخیلات", color: "#ffff00ff" },
   };
   App.PALETTE = (window.BRUSH_PALETTE || DEFAULT_PALETTE);
 
@@ -122,14 +122,14 @@ console.log("[BRUSH:core] loaded");
       App.redrawMaskToScreen();
       if (App._lastCursor) drawCursor(App._lastCursor.x, App._lastCursor.y);
     });
-    map.whenReady(() => { try { App.redrawMaskToScreen(); } catch {} });
+    map.whenReady(() => { try { App.redrawMaskToScreen(); } catch { } });
 
     return map;
   }
 
   // ---- Grid (geo bounds + pixel rect) ----
   App.buildGrid = function (rows = 3, cols = 3) {
-    App.grid.rows = rows|0; App.grid.cols = cols|0;
+    App.grid.rows = rows | 0; App.grid.cols = cols | 0;
     App.grid.tiles = [];
     if (!App.sceneBounds) { warn('buildGrid: no sceneBounds'); return; }
 
@@ -140,21 +140,27 @@ console.log("[BRUSH:core] loaded");
     const dLat = (latMax - latMin) / rows;
     const dLon = (lonMax - lonMin) / cols;
 
-    const imgW = App.imgW|0, imgH = App.imgH|0;
+    const imgW = App.imgW | 0, imgH = App.imgH | 0;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        const north = latMax - r * dLat;
+        const south = latMax - (r + 1) * dLat;
+        const west = lonMin + c * dLon;
+        const east = lonMin + (c + 1) * dLon;
+
         const bounds = L.latLngBounds(
-          [latMin + r * dLat, lonMin + c * dLon],
-          [latMin + (r + 1) * dLat, lonMin + (c + 1) * dLon]
+          [south, west],  // جنوب‌غرب
+          [north, east]   // شمال‌شرق
         );
-        // pixel rect داخل تصویر
+
         const x0 = Math.floor((c / cols) * imgW);
         const x1 = Math.floor(((c + 1) / cols) * imgW);
         const y0 = Math.floor((r / rows) * imgH);
         const y1 = Math.floor(((r + 1) / rows) * imgH);
-        const w  = Math.max(0, x1 - x0);
-        const h  = Math.max(0, y1 - y0);
+        const w = Math.max(0, x1 - x0);
+        const h = Math.max(0, y1 - y0);
+
         App.grid.tiles.push({ r, c, bounds, px: { x0, y0, w, h } });
       }
     }
@@ -183,7 +189,7 @@ console.log("[BRUSH:core] loaded");
 
     App.setTileLoading?.(true);
 
-    try { App.grid.overlay && App.map.removeLayer(App.grid.overlay); } catch {}
+    try { App.grid.overlay && App.map.removeLayer(App.grid.overlay); } catch { }
     App.grid.overlay = null;
     App.grid.active = { r, c };
 
@@ -206,14 +212,14 @@ console.log("[BRUSH:core] loaded");
 
     document.dispatchEvent(new CustomEvent('brush:tilechange', { detail: { r, c } }));
 
-    if (fit) { try { App.map.fitBounds(t.bounds.pad(0.02), { maxZoom: 19 }); } catch {} }
+    if (fit) { try { App.map.fitBounds(t.bounds.pad(0.02), { maxZoom: 19 }); } catch { } }
 
     try {
       const el1 = document.getElementById('hudTileRC');
       const el2 = document.getElementById('hudTileRC2');
       if (el1) el1.textContent = `r${r + 1}×c${c + 1}`;
       if (el2) el2.textContent = `r${r + 1}×c${c + 1}`;
-    } catch {}
+    } catch { }
 
     App.redrawMaskToScreen();
   };
@@ -248,7 +254,7 @@ console.log("[BRUSH:core] loaded");
     App.setActiveTile(best.r, best.c, { fit: false });
   }
 
-  App.setAutoFollowTiles = function(on) {
+  App.setAutoFollowTiles = function (on) {
     App.grid.autoFollow = !!on;
     App.map?.off("moveend", updateActiveTileOverlay);
     App.map?.off("zoomend", updateActiveTileOverlay);
@@ -286,7 +292,7 @@ console.log("[BRUSH:core] loaded");
       body: JSON.stringify({ scene_id: sceneId })
     });
     if (!r.ok) {
-      let j = {}; try { j = await r.json(); } catch {}
+      let j = {}; try { j = await r.json(); } catch { }
       throw new Error("scenes/select http " + r.status + " " + (j?.error || ""));
     }
     return await r.json();
@@ -303,9 +309,9 @@ console.log("[BRUSH:core] loaded");
       App.map.fitBounds(App.sceneBounds.pad(0.05), { maxZoom: 19 });
       App.map.setMaxBounds(App.sceneBounds.pad(0.10));
       App.map.options.maxBoundsViscosity = 1.0;
-    } catch {}
+    } catch { }
 
-    if (App.overlay) { try { App.map.removeLayer(App.overlay); } catch {} }
+    if (App.overlay) { try { App.map.removeLayer(App.overlay); } catch { } }
     App.overlay = null;
     // grid بعد از دانستن imgW/imgH کامل می‌شود
   }
@@ -387,9 +393,9 @@ console.log("[BRUSH:core] loaded");
     const ptLT = App.map.latLngToContainerPoint(lt);
     const ptRB = App.map.latLngToContainerPoint(rb);
 
-    const left   = ptLT.x, top = ptLT.y;
-    const right  = ptRB.x, bottom = ptRB.y;
-    const wScr   = right - left, hScr = bottom - top;
+    const left = ptLT.x, top = ptLT.y;
+    const right = ptRB.x, bottom = ptRB.y;
+    const wScr = right - left, hScr = bottom - top;
     if (wScr <= 0 || hScr <= 0) return null;
 
     if (cx < left || cx > right || cy < top || cy > bottom) return null;
@@ -503,7 +509,7 @@ console.log("[BRUSH:core] loaded");
       if (CNV.style.pointerEvents !== "auto") return;
       e.preventDefault(); e.stopPropagation();
       painting = true;
-      try { App.map.dragging.disable(); } catch {}
+      try { App.map.dragging.disable(); } catch { }
       const [cx, cy] = getXY(e, CNV);
       dabAtScreenAndTile(cx, cy);
     });
@@ -517,19 +523,19 @@ console.log("[BRUSH:core] loaded");
     window.addEventListener("mouseup", () => {
       if (!painting) return;
       painting = false;
-      try { App.map.dragging.enable(); } catch {}
+      try { App.map.dragging.enable(); } catch { }
     });
   }
 
   // ---- Layers / polygons (کمینه) ----
   App.addGeoJSONLayer = function (feat, layer) {
     layer._props = { ...(feat?.properties || {}) };
-    try { layer.setStyle?.({ color: "#22c55e", weight: 2 }); } catch {}
+    try { layer.setStyle?.({ color: "#22c55e", weight: 2 }); } catch { }
     layer.on?.("click", () => {
       App.selectLayer(layer);
-      try { App.map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 19 }); } catch {}
+      try { App.map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 19 }); } catch { }
     });
-    try { App.drawnFG.addLayer(layer); } catch {}
+    try { App.drawnFG.addLayer(layer); } catch { }
     App.layers.push(layer);
   };
   App.layerUid = (layer) =>
@@ -537,27 +543,27 @@ console.log("[BRUSH:core] loaded");
   App.selectLayer = function (layer) {
     if (!layer) return;
     if (App.selectedLayer && App.selectedLayer !== layer) {
-      try { App.selectedLayer.setStyle({ weight: 2, color: "#22c55e" }); } catch {}
+      try { App.selectedLayer.setStyle({ weight: 2, color: "#22c55e" }); } catch { }
     }
     App.selectedLayer = layer;
-    try { App.selectedLayer.setStyle({ weight: 3, color: "#4f46e5" }); } catch {}
+    try { App.selectedLayer.setStyle({ weight: 3, color: "#4f46e5" }); } catch { }
     try { App.onLayerSelected?.(layer); } catch (e) { warn("onLayerSelected:error", e); }
   };
 
   // ---- Public helpers for IO.js ----
-  App.localMaskToBlob = async function(mime = "image/png") {
+  App.localMaskToBlob = async function (mime = "image/png") {
     const tm = App.tileMasks?.[App.grid.active.r]?.[App.grid.active.c];
     if (!tm) return null;
     return await new Promise(res => tm.cnv.toBlob(res, mime, 1));
   };
-  App.getLocalMaskBBox = function() {
+  App.getLocalMaskBBox = function () {
     const t = activeTile();
     if (!t) return null;
     const { x0, y0, w, h } = t.px;
     return { x: x0, y: y0, w, h, r: App.grid.active.r, c: App.grid.active.c };
     // توجه: این BBox داخل تصویر اصلی است؛ بومِ تایل اندازه‌اش w×h است.
   };
-  App.drawMaskImageToLocal = async function(blob) {
+  App.drawMaskImageToLocal = async function (blob) {
     const tm = App.tileMasks?.[App.grid.active.r]?.[App.grid.active.c];
     if (!tm) return;
     const bmp = await createImageBitmap(blob);
@@ -608,8 +614,8 @@ console.log("[BRUSH:core] loaded");
     const ptLT = App.map.latLngToContainerPoint(lt);
     const ptRB = App.map.latLngToContainerPoint(rb);
 
-    const left  = ptLT.x, top = ptLT.y, right = ptRB.x, bottom = ptRB.y;
-    const wScr  = right - left, hScr = bottom - top;
+    const left = ptLT.x, top = ptLT.y, right = ptRB.x, bottom = ptRB.y;
+    const wScr = right - left, hScr = bottom - top;
 
     const w = App.maskCanvas.width / App.DPR;
     const h = App.maskCanvas.height / App.DPR;
@@ -636,7 +642,7 @@ console.log("[BRUSH:core] loaded");
         App.map.fitBounds(b.pad(0.05));
         App.map.setMaxBounds(b.pad(0.10));
         App.map.options.maxBoundsViscosity = 1.0;
-      } catch {}
+      } catch { }
     }
     // تخصیص بوم‌های تایل بعد از دانستن imgW/imgH انجام می‌شود (allocTileMasks)
   };
@@ -653,8 +659,8 @@ console.log("[BRUSH:core] loaded");
     autoPickVisibleTile = false,
     autoFollowTiles = false
   } = {}) {
-    App.grid.rows = gridRows|0;
-    App.grid.cols = gridCols|0;
+    App.grid.rows = gridRows | 0;
+    App.grid.cols = gridCols | 0;
 
     createMap(mapId);
 
@@ -691,7 +697,7 @@ console.log("[BRUSH:core] loaded");
     const isBrush = (mode === "brush");
     App.MODE = isBrush ? "brush" : "pan";
     if (App.maskCanvas) App.maskCanvas.style.pointerEvents = isBrush ? "auto" : "none";
-    try { isBrush ? App.map.dragging.disable() : App.map.dragging.enable(); } catch {}
+    try { isBrush ? App.map.dragging.disable() : App.map.dragging.enable(); } catch { }
   };
   App.setBrushSize = (px) => {
     App.Brush.size = Math.max(2, Math.min(256, parseInt(px || 24, 10)));
@@ -727,10 +733,10 @@ console.log("[BRUSH:core] loaded");
     else if (e.key === "e" || e.key === "E") App.setErase(!App.ERASE);
     else if (e.key === "[") App.setBrushSize(App.Brush.size - 1);
     else if (e.key === "]") App.setBrushSize(App.Brush.size + 1);
-    else if (e.key === "ArrowLeft")  App.moveTile(0, -1, { wrap: true, fit: false });
+    else if (e.key === "ArrowLeft") App.moveTile(0, -1, { wrap: true, fit: false });
     else if (e.key === "ArrowRight") App.moveTile(0, +1, { wrap: true, fit: false });
-    else if (e.key === "ArrowUp")    App.moveTile(-1, 0, { wrap: true, fit: false });
-    else if (e.key === "ArrowDown")  App.moveTile(+1, 0, { wrap: true, fit: false });
+    else if (e.key === "ArrowUp") App.moveTile(-1, 0, { wrap: true, fit: false });
+    else if (e.key === "ArrowDown") App.moveTile(+1, 0, { wrap: true, fit: false });
     else if (e.altKey && /^[1-9]$/.test(e.key)) App.setTileByNumber(parseInt(e.key, 10), { fit: false });
   });
 })();
