@@ -7,6 +7,8 @@
   <title>{% block title %}Sentinel Labeler{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/logo.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/logo.png') }}">
   <style>
     :root {
       --brand: #4f46e5;
@@ -246,6 +248,62 @@
       height: 40px;
       object-fit: contain
     }
+
+
+    .userbox {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #101728;
+      border: 1px solid #1e2639;
+      border-radius: 999px;
+      padding: 6px 10px;
+    }
+
+    .user-ava {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #24314a;
+      display: grid;
+      place-items: center;
+      color: #cfe0ff;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .user-meta {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
+    .user-name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .user-role {
+      font-size: 11px;
+      color: #9aa3b2;
+      background: #0f1626;
+      border: 1px solid #23304a;
+      border-radius: 6px;
+      padding: 1px 6px;
+      margin-left: 6px;
+    }
+
+    .user-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -272,14 +330,49 @@
         </div>
         <button class="btn" id="saveMaskBtn">Save Mask</button>
       </div>
+
+      {% if current_user %}
+      <div class="userbox">
+        <div class="user-chip">
+          <div class="user-ava">
+            {{ (current_user.email or 'U')[:1] | upper }}
+          </div>
+          <div class="user-meta">
+            <div class="user-name">
+              {{ current_user.email }}
+              {% if is_admin %}
+              <span class="user-role">admin</span>
+              {% else %}
+              <span class="user-role">user</span>
+              {% endif %}
+            </div>
+            <div class="muted" style="font-size:11px;">
+              Logged in
+            </div>
+          </div>
+        </div>
+
+        <div class="user-actions">
+          {% if is_admin %}
+          <a class="btn" href="{{ url_for('admin_bp.home') }}">Admin</a>
+          {% endif %}
+          <a class="btn" href="{{ url_for('auth_bp.logout') }}">Logout</a>
+        </div>
+      </div>
+      {% else %}
+      <a class="btn primary" href="{{ url_for('auth_bp.login', next=request.path) }}">Login</a>
+      {% endif %}
     </header>
 
     <aside class="left">
       <div class="section">
         <div class="muted">Pages</div>
         <div class="toolbar">
-          <a class="btn" href="/polygon">Polygon</a>
-          <a class="btn" href="/brush">Brush</a>
+          <a class="btn" href="{{ url_for('pages_bp.polygon') }}">Polygon</a>
+          <a class="btn" href="{{ url_for('pages_bp.brush') }}">Brush</a>
+          {% if is_admin %}
+          <a class="btn" href="{{ url_for('admin_bp.home') }}">Admin</a>
+          {% endif %}
         </div>
       </div>
 

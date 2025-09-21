@@ -7,7 +7,7 @@ import numpy as np
 from models import db, User, AssignedTile
 from flask import session
 from services.polygons import load_polygons_dict
-
+from services.s2 import current_selected_scene, tiles_root
 from config import settings
 from services.masks import load_mask, mask_bytes, save_mask_bytes
 from services.polygons import load_polygons_text  # فقط این
@@ -74,23 +74,6 @@ from flask import Blueprint, request, jsonify
 from pathlib import Path
 import time
 
-@api_bp.route("/api/masks/save_tile_png", methods=["POST"])
-def save_tile_png():
-    scene_id = request.form.get("scene_id", "unknown")
-    r = request.form.get("r", "0")
-    c = request.form.get("c", "0")
-    f = request.files.get("file")
-    if not f:
-      return jsonify(ok=False, error="file missing"), 400
-
-    base = Path("output/masks") / scene_id / f"r{r}_c{c}"
-    base.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    name = f"scene-{scene_id}_r{r}_c{c}_{stamp}.png"
-    outp = base / name
-    f.save(outp)
-
-    return jsonify(ok=True, path=str(outp))
 
 # --- بقیه APIها بدون تغییر ---
 from io import BytesIO
@@ -110,13 +93,18 @@ def api_grid_meta():
         "tile_pixel_w": W // cols, "tile_pixel_h": H // rows,
         "bounds_wgs84": b
     })
+from flask import abort, session
 
 @api_bp.get("/grid/tile")
 def api_grid_tile():
     scene_id = request.args.get("scene_id", "")
+    if not scene_id:
+        return jsonify({"error": "scene_id required"}), 400
+    if not user_can_access_scene(scene_id):
+        return abort(403)
+
     r = int(request.args.get("r", 0))
     c = int(request.args.get("c", 0))
-    if not scene_id: return jsonify({"error": "scene_id required"}), 400
     fn = tiles_root() / scene_id / f"tile_{r}_{c}.png"
     if not fn.exists():
         return jsonify({"error": "tile not found"}), 404
@@ -164,7 +152,24 @@ def api_progress():
 
 @api_bp.get("/scenes/list")
 def api_scenes_list():
-    items = [s.__dict__ for s in list_s2_scenes()]
+    if session.get("is_admin"):
+        items = [s.__dict__ for s in list_s2_scenes()]
+        return jsonify({"ok": True, "items": items})
+
+    uid = session.get("user_id")
+    q = db.session.query(AssignedTile.scene_id, AssignedTile.scene_name).filter_by(user_id=uid).all()
+    assigned_ids = {row.scene_id for row in q}
+    if not assigned_ids:
+        return jsonify({"ok": True, "items": []})
+
+    all_items = {s.id: s for s in list_s2_scenes()}
+    items = []
+    for sid in assigned_ids:
+        meta = all_items.get(sid)
+        if meta:
+            items.append(meta.__dict__)
+        else:
+            items.append({"id": sid, "name": sid})
     return jsonify({"ok": True, "items": items})
 
 @api_bp.post("/scenes/select")
@@ -173,6 +178,8 @@ def api_scenes_select():
     scene_id = j.get("scene_id")
     if not scene_id:
         return jsonify({"ok": False, "error": "scene_id missing"}), 400
+    if not user_can_access_scene(scene_id):
+        return abort(403)
     try:
         meta = select_scene_by_id(scene_id)
         return jsonify({"ok": True, "meta": meta})
@@ -186,13 +193,14 @@ def api_scenes_current():
 
 
 
+# routes/api.py
+
 @api_bp.get("/my_tiles")
 def api_my_tiles():
     uid = session.get("user_id")
     if not uid:
         return jsonify({"ok": False, "error": "unauthorized"}), 401
 
-    # لیست تایل‌های کاربر
     rows = (
         AssignedTile.query
         .filter_by(user_id=uid)
@@ -205,13 +213,13 @@ def api_my_tiles():
             "id": t.id,
             "scene_id": t.scene_id,
             "scene_name": t.scene_name,
-            "rows": t.rows, "cols": t.cols,
-            "r": t.r, "c": t.c,
-            "label": t.label
+            "label": t.label,
+            "assigned_at": t.created_at.isoformat() if getattr(t, "created_at", None) else None
+            # اگر فیلدهای r,c,rows,cols ندارید، اصلاً ارسال نکنید
         })
     return jsonify({"ok": True, "items": items})
 
-from services.s2 import current_selected_scene, tiles_root
+
 
 @api_bp.get("/grid/list")
 def api_grid_list():
@@ -219,6 +227,8 @@ def api_grid_list():
     scene_id = request.args.get("scene_id") or (sel.id if sel else "")
     if not scene_id:
         return jsonify({"ok": False, "error": "scene_id missing"}), 400
+    if not user_can_access_scene(scene_id):
+        return abort(403)
 
     d = tiles_root() / scene_id
     if not d.exists():
@@ -237,3 +247,15 @@ def api_grid_list():
                 })
 
     return jsonify({"ok": True, "rows": 3, "cols": 3, "items": items, "scene_id": scene_id})
+
+
+def user_can_access_scene(scene_id: str) -> bool:
+    if not scene_id:
+        return False
+    # ادمین دسترسی کامل دارد
+    if session.get("is_admin"):
+        return True
+    uid = session.get("user_id")
+    if not uid:
+        return False
+    return db.session.query(AssignedTile.id).filter_by(user_id=uid, scene_id=scene_id).first() is not None

@@ -18,6 +18,8 @@
   .chip { display: inline-flex; align-items: center; gap: 6px; background: #101728; border: 1px solid #1e2639; padding: 4px 8px; border-radius: 999px }
   .num { font-variant-numeric: tabular-nums }
   .kbd { background: #0f1626; border: 1px solid #23304a; padding: 0 6px; border-radius: 6px; font-size: 12px }
+
+  /* tile loader overlay */
   #tileLoader { position: absolute; inset: 0; display: none; place-items: center; background: rgba(13,19,32,.45); z-index: 1405 }
   #tileLoader .box { padding: 10px 14px; border-radius: 10px; background: #0f1626; border: 1px solid #23304a; color: #dbe3f4; font: 14px/1.2 system-ui, sans-serif }
 </style>
@@ -145,6 +147,7 @@
     <button id="tileNext" class="btn">▶</button>
     <select id="tileSelect"></select>
     <button id="tileGo" class="btn primary">Go</button>
+
     <label class="chip" style="gap:6px">
       <input id="autoFollowChk" type="checkbox" />
       Auto-follow tile
@@ -166,9 +169,13 @@
     7: { name: 'سیب',                   color: '#ffd60aff' }
   };
 </script>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
 <script src="{{ url_for('static', filename='js/brush/core.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/brush/io.js') }}" defer></script>
+<!-- اگر UI اختصاصی دیگری داری -->
+<script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
 
 <script>
   (function () {
@@ -238,6 +245,7 @@
       const huds = [$('hudTileRC'), $('hudTileRC2')];
       const chk = $('autoFollowChk');
 
+      // HUD sync
       document.addEventListener('brush:tilechange', (ev) => {
         const { r, c } = ev.detail || { r: 0, c: 0 };
         huds.forEach(h => h && (h.textContent = `r${r + 1}×c${c + 1}`));
@@ -263,7 +271,8 @@
     async function populateGridDropdown(sceneId) {
       const sel = $('tileSelect'); if (!sel) return;
       sel.innerHTML = '';
-      const list = await fetch('/api/grid/list?scene_id=' + encodeURIComponent(sceneId), { cache: 'no-store' }).then(r => r.json()).catch(() => null);
+      const list = await fetch('/api/grid/list?scene_id=' + encodeURIComponent(sceneId), { cache: 'no-store' })
+        .then(r => r.json()).catch(() => null);
       if (!list || !list.ok) return;
       list.items.sort((a, b) => (a.r * 100 + a.c) - (b.r * 100 + b.c));
       list.items.forEach(it => {
@@ -282,6 +291,8 @@
       let r = await fetch(probe, { cache: 'no-store' });
       if (r.status === 200) return true;
       if (r.status !== 404) throw new Error('grid/list http ' + r.status);
+
+      // build tiles
       const sel = await fetch('/api/scenes/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -291,6 +302,7 @@
         let j = {}; try { j = await sel.json(); } catch {}
         throw new Error('scenes/select http ' + sel.status + ' ' + (j.error || ''));
       }
+
       r = await fetch(probe, { cache: 'no-store' });
       return r.status === 200;
     }
@@ -305,13 +317,33 @@
       };
     }
 
+    async function checkAccessOrRedirect() {
+      const res = await fetch('/api/my_tiles', { cache: 'no-store' });
+      if (res.status === 401) {
+        location.href = '/login?next=' + encodeURIComponent(location.pathname);
+        return false;
+      }
+      const j = await res.json().catch(() => null);
+      if (!j || !j.ok || !Array.isArray(j.items) || j.items.length === 0) {
+        location.href = '/no-access';
+        return false;
+      }
+      return true;
+    }
+
     async function initBrush() {
+      // 0) دسترسی
+      const ok = await checkAccessOrRedirect();
+      if (!ok) return;
+
+      // 1) صبر تا Leaflet و core/io
       const wait = (pred, ms = 7000) => new Promise((res, rej) => {
         const t0 = Date.now();
         (function tick(){ if (pred()) return res(true); if (Date.now()-t0>ms) return rej(new Error('timeout')); setTimeout(tick, 60); })();
       });
       await wait(() => window.L && window.BrushApp && typeof window.BrushApp.init === 'function');
 
+      // 2) init
       await window.BrushApp.init({
         mapId: 'map',
         maskId: 'maskCanvas',
@@ -323,19 +355,23 @@
         autoFollowTiles: false
       });
 
+      // 3) لودر
       overrideTileLoadingToPageOverlay();
 
+      // 4) صحنه‌ی جاری
       const sc = await fetch('/api/scenes/current', { cache: 'no-store' }).then(r => r.json()).catch(() => null);
       if (!sc || !sc.ok || !sc.scene) { alert('No scene selected'); return; }
       const sid = sc.scene.id;
 
+      // 5) آماده‌سازی تایل‌ها
       const ready = await ensureTilesReady(sid);
       if (!ready) { alert('Tiles not ready for this scene'); return; }
 
+      // 6) دراپ‌داون تایل‌ها + ست اولیه
       await populateGridDropdown(sid);
-
       window.BrushApp.setActiveTile(0, 0, { fit: true });
 
+      // 7) بارگذاری پولیگان‌ها (نیازمند io.js)
       if (window.BrushIO?.reloadPolygonsForScene) {
         try { await window.BrushIO.reloadPolygonsForScene(); }
         catch (e) { console.error('polygons:load:error', e); }
