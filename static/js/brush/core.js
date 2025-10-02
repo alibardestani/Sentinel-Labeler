@@ -1,7 +1,7 @@
 // static/js/brush/core.js
 console.log("[BRUSH:core] loaded");
 
-; (() => {
+;(() => {
   // جلوگیری از دوبار لود
   if (window.BrushApp && window.BrushApp.__coreLoaded) {
     console.warn("[BRUSH:core] already loaded; skipping duplicate load");
@@ -9,10 +9,20 @@ console.log("[BRUSH:core] loaded");
   }
 
   let DBG = true;
-  const log = (...a) => DBG && console.debug("[BRUSH:core]", ...a);
-  const warn = (...a) => DBG && console.warn("[BRUSH:core]", ...a);
-  const err = (...a) => DBG && console.error("[BRUSH:core]", ...a);
-  const $ = (id) => document.getElementById(id);
+  const log  = (...a) => DBG && console.debug("[BRUSH:core]", ...a);
+  const warn = (...a) => DBG && console.warn ("[BRUSH:core]", ...a);
+  const err  = (...a) => DBG && console.error("[BRUSH:core]", ...a);
+  const $    = (id) => document.getElementById(id);
+
+  // --- throttling helpers (rAF) ---
+  const makeRafThrottle = (fn) => {
+    let pend = false;
+    return (...args) => {
+      if (pend) return;
+      pend = true;
+      requestAnimationFrame(() => { pend = false; try { fn(...args); } catch (e) { err("raf:", e); } });
+    };
+  };
 
   window.addEventListener("error", (e) => err("window.error", e?.message, e?.error));
   window.addEventListener("unhandledrejection", (e) => err("unhandledrejection", e?.reason));
@@ -27,11 +37,11 @@ console.log("[BRUSH:core] loaded");
     map: null, overlay: null, sceneBounds: null, boundsRaw: null,
     drawnFG: null, layers: [], selectedLayer: null,
 
-    // screen canvases
+    // canvases (screen)
     maskCanvas: null, maskCtx: null,
     cursorCanvas: null, cursorCtx: null,
 
-    // whole image meta (بدون بوم سراسری)
+    // whole image meta
     imgW: 0, imgH: 0,
 
     // per-tile masks: tileMasks[r][c] = { cnv, ctx, w, h, classBuf }
@@ -46,14 +56,15 @@ console.log("[BRUSH:core] loaded");
 
     sceneId: null,
     _lastCursor: null,
+    ready: false,
   });
 
   // ---- Palette ----
   const DEFAULT_PALETTE = {
     0: { name: "Background", color: "#00000000" },
-    1: { name: "گردو", color: "#00ff00ff" },
-    2: { name: "پسته", color: "#ffa500ff" },
-    3: { name: "نخیلات", color: "#ffff00ff" },
+    1: { name: "گردو",      color: "#00ff00ff" },
+    2: { name: "پسته",      color: "#ffa500ff" },
+    3: { name: "نخیلات",    color: "#ffff00ff" },
   };
   App.PALETTE = (window.BRUSH_PALETTE || DEFAULT_PALETTE);
 
@@ -99,11 +110,16 @@ console.log("[BRUSH:core] loaded");
   };
 
   // ---- Map ----
+  const _redrawOnMoveZoom = makeRafThrottle(() => {
+    App.redrawMaskToScreen();
+    if (App._lastCursor) drawCursor(App._lastCursor.x, App._lastCursor.y);
+  });
+
   function createMap(mapId) {
     if (App.map && App.map._loaded) { log("createMap:reuse"); return App.map; }
     const el = document.getElementById(mapId);
     if (!el) throw new Error("map container not found: " + mapId);
-    if (el._leaflet_id) { warn("createMap: container already initialized"); return App.map; }
+    if (el._leaflet_id) { warn("createMap:container already initialized"); return App.map; }
 
     const map = L.map(mapId, { zoomControl: true, preferCanvas: true, maxZoom: 19 });
     L.tileLayer(
@@ -117,21 +133,23 @@ console.log("[BRUSH:core] loaded");
     App.map = map;
     App.drawnFG = drawn;
 
-    map.on("resize", sizeCanvases);
-    map.on("move zoom", () => {
-      App.redrawMaskToScreen();
-      if (App._lastCursor) drawCursor(App._lastCursor.x, App._lastCursor.y);
-    });
-    map.whenReady(() => { try { App.redrawMaskToScreen(); } catch { } });
+    map.on("resize", makeRafThrottle(sizeCanvases));
+    map.on("move",  _redrawOnMoveZoom);
+    map.on("zoom",  _redrawOnMoveZoom);
+
+    map.whenReady(() => { try { App.redrawMaskToScreen(); } catch {} });
 
     return map;
   }
 
   // ---- Grid (geo bounds + pixel rect) ----
   App.buildGrid = function (rows = 3, cols = 3) {
-    App.grid.rows = rows | 0; App.grid.cols = cols | 0;
-    App.grid.tiles = [];
+    rows = rows|0; cols = cols|0;
     if (!App.sceneBounds) { warn('buildGrid: no sceneBounds'); return; }
+
+    App.grid.rows = rows;
+    App.grid.cols = cols;
+    App.grid.tiles = [];
 
     const latMin = App.sceneBounds.getSouth();
     const latMax = App.sceneBounds.getNorth();
@@ -140,26 +158,25 @@ console.log("[BRUSH:core] loaded");
     const dLat = (latMax - latMin) / rows;
     const dLon = (lonMax - lonMin) / cols;
 
-    const imgW = App.imgW | 0, imgH = App.imgH | 0;
+    const imgW = App.imgW|0, imgH = App.imgH|0;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        // دقت جهت‌ها: ردیف 0 در شمال، با کاهش عرض به جنوب می‌رویم
         const north = latMax - r * dLat;
         const south = latMax - (r + 1) * dLat;
-        const west = lonMin + c * dLon;
-        const east = lonMin + (c + 1) * dLon;
+        const west  = lonMin + c * dLon;
+        const east  = lonMin + (c + 1) * dLon;
 
-        const bounds = L.latLngBounds(
-          [south, west],  // جنوب‌غرب
-          [north, east]   // شمال‌شرق
-        );
+        const bounds = L.latLngBounds([south, west], [north, east]);
 
+        // پیکسل رکت داخل تصویر
         const x0 = Math.floor((c / cols) * imgW);
         const x1 = Math.floor(((c + 1) / cols) * imgW);
         const y0 = Math.floor((r / rows) * imgH);
         const y1 = Math.floor(((r + 1) / rows) * imgH);
-        const w = Math.max(0, x1 - x0);
-        const h = Math.max(0, y1 - y0);
+        const w  = Math.max(0, x1 - x0);
+        const h  = Math.max(0, y1 - y0);
 
         App.grid.tiles.push({ r, c, bounds, px: { x0, y0, w, h } });
       }
@@ -185,41 +202,53 @@ console.log("[BRUSH:core] loaded");
     if (!App.sceneId || !App.sceneBounds) return;
 
     const same = (App.grid.active.r === r && App.grid.active.c === c);
-    if (same && App.grid.overlay) return;
+    const t = App.grid.tiles[r * cols + c];
+    if (!t) return;
 
-    App.setTileLoading?.(true);
+    // اگر همون تایل است و overlay داریم، فقط ری‌دروا
+    if (same && App.grid.overlay) {
+      App.redrawMaskToScreen();
+      return;
+    }
 
-    try { App.grid.overlay && App.map.removeLayer(App.grid.overlay); } catch { }
-    App.grid.overlay = null;
     App.grid.active = { r, c };
 
-    const idx = r * cols + c;
-    const t = App.grid.tiles[idx];
-    if (!t) { App.setTileLoading?.(false); return; }
-
     const url = `/api/grid/tile?scene_id=${encodeURIComponent(App.sceneId)}&r=${r}&c=${c}&t=${Date.now()}`;
-    const ov = L.imageOverlay(url, t.bounds, { opacity: 0.7, crossOrigin: true });
-    App.grid.overlay = ov.addTo(App.map);
 
-    if (typeof ov.once === 'function') {
-      ov.once('load', () => App.setTileLoading?.(false));
-      ov.once('error', () => { App.setTileLoading?.(false); alert('Failed to load tile'); });
+    // reuse overlay: setUrl + setBounds (کمترین هزینه)
+    if (App.grid.overlay) {
+      App.setTileLoading?.(true);
+      try { App.grid.overlay.setBounds(t.bounds); } catch {}
+      try {
+        App.grid.overlay.setUrl(url);
+        const img = App.grid.overlay.getElement && App.grid.overlay.getElement();
+        if (img && img.complete) App.setTileLoading?.(false);
+        else {
+          App.grid.overlay.once?.('load',  () => App.setTileLoading?.(false));
+          App.grid.overlay.once?.('error', () => { App.setTileLoading?.(false); alert('Failed to load tile'); });
+        }
+      } catch {
+        App.setTileLoading?.(false);
+      }
+    } else {
+      App.setTileLoading?.(true);
+      const ov = L.imageOverlay(url, t.bounds, { opacity: 0.7, crossOrigin: true });
+      App.grid.overlay = ov.addTo(App.map);
+      ov.once?.('load',  () => App.setTileLoading?.(false));
+      ov.once?.('error', () => { App.setTileLoading?.(false); alert('Failed to load tile'); });
       const img = ov.getElement && ov.getElement();
       if (img && img.complete) App.setTileLoading?.(false);
-    } else {
-      App.setTileLoading?.(false);
     }
 
     document.dispatchEvent(new CustomEvent('brush:tilechange', { detail: { r, c } }));
 
-    if (fit) { try { App.map.fitBounds(t.bounds.pad(0.02), { maxZoom: 19 }); } catch { } }
+    if (fit) { try { App.map.fitBounds(t.bounds.pad(0.02), { maxZoom: 19 }); } catch {} }
 
     try {
-      const el1 = document.getElementById('hudTileRC');
-      const el2 = document.getElementById('hudTileRC2');
+      const el1 = $('hudTileRC'), el2 = $('hudTileRC2');
       if (el1) el1.textContent = `r${r + 1}×c${c + 1}`;
       if (el2) el2.textContent = `r${r + 1}×c${c + 1}`;
-    } catch { }
+    } catch {}
 
     App.redrawMaskToScreen();
   };
@@ -247,12 +276,12 @@ console.log("[BRUSH:core] loaded");
     App.setActiveTile(r, c, { fit });
   };
 
-  function updateActiveTileOverlay() {
+  const updateActiveTileOverlay = makeRafThrottle(() => {
     if (!App.grid.tiles.length) return;
     const best = pickVisibleTile();
     if (!best) return;
     App.setActiveTile(best.r, best.c, { fit: false });
-  }
+  });
 
   App.setAutoFollowTiles = function (on) {
     App.grid.autoFollow = !!on;
@@ -268,6 +297,15 @@ console.log("[BRUSH:core] loaded");
   // ---- Scene / tiles bootstrap ----
   async function ensureSceneId(providedId) {
     if (providedId) { App.sceneId = providedId; return providedId; }
+    // اگر SceneStore هست، از کش استفاده کن
+    try {
+      if (window.SceneStore?.current) {
+        const j = await window.SceneStore.current();
+        App.sceneId = j?.scene?.id || null;
+        return App.sceneId;
+      }
+    } catch (e) { /* fallthrough */ }
+
     try {
       const r = await fetch("/api/scenes/current", { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
@@ -292,7 +330,7 @@ console.log("[BRUSH:core] loaded");
       body: JSON.stringify({ scene_id: sceneId })
     });
     if (!r.ok) {
-      let j = {}; try { j = await r.json(); } catch { }
+      let j = {}; try { j = await r.json(); } catch {}
       throw new Error("scenes/select http " + r.status + " " + (j?.error || ""));
     }
     return await r.json();
@@ -309,11 +347,11 @@ console.log("[BRUSH:core] loaded");
       App.map.fitBounds(App.sceneBounds.pad(0.05), { maxZoom: 19 });
       App.map.setMaxBounds(App.sceneBounds.pad(0.10));
       App.map.options.maxBoundsViscosity = 1.0;
-    } catch { }
+    } catch {}
 
-    if (App.overlay) { try { App.map.removeLayer(App.overlay); } catch { } }
+    // overlay بک‌دراپ (اختیاری), اینجا کنترل نمی‌کنیم تا فقط تایل فعال نمایش داده شود
+    if (App.overlay) { try { App.map.removeLayer(App.overlay); } catch {} }
     App.overlay = null;
-    // grid بعد از دانستن imgW/imgH کامل می‌شود
   }
 
   // ---- Allocate per-tile canvases (full resolution per tile) ----
@@ -323,14 +361,23 @@ console.log("[BRUSH:core] loaded");
     const j = await r.json();
 
     const w = +j.width, h = +j.height;
-    App.imgW = Number.isFinite(w) ? w : 0;
-    App.imgH = Number.isFinite(h) ? h : 0;
-    if (!App.imgW || !App.imgH) throw new Error("invalid backdrop size");
+    const newW = Number.isFinite(w) ? w : 0;
+    const newH = Number.isFinite(h) ? h : 0;
+    if (!newW || !newH) throw new Error("invalid backdrop size");
+
+    // اگر ابعاد تغییری نکرده، از ماسک‌های موجود استفاده کن
+    const sameDims = (App.imgW === newW && App.imgH === newH && App.tileMasks?.length === App.grid.rows);
+    App.imgW = newW; App.imgH = newH;
 
     // ساخت گرید با ابعاد پیکسلی
     App.buildGrid(App.grid.rows, App.grid.cols);
 
-    // ایجاد بوم برای هر گرید
+    if (sameDims) {
+      log("allocTileMasks: reuse existing canvases");
+      return;
+    }
+
+    // ایجاد بوم برای هر گرید (فراخوانی حداقلی)
     App.tileMasks = [];
     for (let rIdx = 0; rIdx < App.grid.rows; rIdx++) {
       const row = [];
@@ -346,37 +393,42 @@ console.log("[BRUSH:core] loaded");
       }
       App.tileMasks.push(row);
     }
-    log("allocTileMasks", { imgW: App.imgW, imgH: App.imgH, rows: App.grid.rows, cols: App.grid.cols });
+    log("allocTileMasks:new", { imgW: App.imgW, imgH: App.imgH, rows: App.grid.rows, cols: App.grid.cols });
   }
 
   // ---- Canvases ----
+  const _sizeCanvasesRaf = makeRafThrottle(() => {
+    if (!App.map) return;
+    const sz = App.map.getSize();
+    [App.maskCanvas, App.cursorCanvas].forEach(cnv => {
+      if (!cnv) return;
+      const ctx = cnv.getContext("2d");
+      const w = Math.round(sz.x * App.DPR);
+      const h = Math.round(sz.y * App.DPR);
+      if (cnv.width !== w)   cnv.width  = w;
+      if (cnv.height !== h)  cnv.height = h;
+      cnv.style.width  = sz.x + "px";
+      cnv.style.height = sz.y + "px";
+      ctx.setTransform(App.DPR, 0, 0, App.DPR, 0, 0);
+    });
+    clearCursor();
+    if (App.map && App.map._loaded) App.redrawMaskToScreen();
+  });
+
   function attachCanvases(maskId, cursorId) {
-    App.maskCanvas = $(maskId);
+    App.maskCanvas   = $(maskId);
     App.cursorCanvas = $(cursorId);
     if (!App.maskCanvas || !App.cursorCanvas) throw new Error("maskCanvas / cursorCanvas missing");
-    App.maskCtx = App.maskCanvas.getContext("2d");
+    App.maskCtx   = App.maskCanvas.getContext("2d");
     App.cursorCtx = App.cursorCanvas.getContext("2d");
     App.cursorCanvas.style.pointerEvents = "none";
-    sizeCanvases();
+    _sizeCanvasesRaf();
     bindPainting();
     bindCursor();
     if (App.map && App.map._loaded) App.redrawMaskToScreen();
   }
 
-  function sizeCanvases() {
-    if (!App.map) return;
-    const sz = App.map.getSize();
-    [App.maskCanvas, App.cursorCanvas].forEach(cnv => {
-      if (!cnv) return;
-      cnv.width = Math.round(sz.x * App.DPR);
-      cnv.height = Math.round(sz.y * App.DPR);
-      cnv.style.width = sz.x + "px";
-      cnv.style.height = sz.y + "px";
-      cnv.getContext("2d").setTransform(App.DPR, 0, 0, App.DPR, 0, 0);
-    });
-    clearCursor();
-    if (App.map && App.map._loaded) App.redrawMaskToScreen();
-  }
+  function sizeCanvases() { _sizeCanvasesRaf(); }
 
   // ---- helpers (screen <-> active tile pixel) ----
   function activeTile() {
@@ -393,15 +445,14 @@ console.log("[BRUSH:core] loaded");
     const ptLT = App.map.latLngToContainerPoint(lt);
     const ptRB = App.map.latLngToContainerPoint(rb);
 
-    const left = ptLT.x, top = ptLT.y;
-    const right = ptRB.x, bottom = ptRB.y;
-    const wScr = right - left, hScr = bottom - top;
+    const left   = ptLT.x, top = ptLT.y;
+    const right  = ptRB.x,  bottom = ptRB.y;
+    const wScr   = right - left, hScr = bottom - top;
     if (wScr <= 0 || hScr <= 0) return null;
-
     if (cx < left || cx > right || cy < top || cy > bottom) return null;
 
     const fx = (cx - left) / wScr;
-    const fy = (cy - top) / hScr;
+    const fy = (cy - top)  / hScr;
 
     const tm = App.tileMasks?.[App.grid.active.r]?.[App.grid.active.c];
     if (!tm) return null;
@@ -439,10 +490,11 @@ console.log("[BRUSH:core] loaded");
     App.cursorCtx.restore();
   }
   function bindCursor() {
-    App.map.on("mousemove", (e) => {
+    const onMove = makeRafThrottle((e) => {
       const pt = App.map.latLngToContainerPoint(e.latlng);
       drawCursor(pt.x, pt.y);
     });
+    App.map.on("mousemove", onMove);
     App.map.on("mouseout", clearCursor);
   }
 
@@ -489,7 +541,7 @@ console.log("[BRUSH:core] loaded");
     }
   }
 
-  function dabAtScreenAndTile(cx, cy) {
+  const _dabRaf = makeRafThrottle((cx, cy) => {
     const p = containerToTileXY(cx, cy);
     if (!p) return;
     const rScreen = Math.max(1, App.Brush.size * 0.5);
@@ -497,7 +549,9 @@ console.log("[BRUSH:core] loaded");
     paintCircleOnActive(p.ix, p.iy, rI, App.ERASE, App.Brush.classId);
     App.redrawMaskToScreen();
     if (typeof App.onAfterStroke === "function") App.onAfterStroke();
-  }
+  });
+
+  function dabAtScreenAndTile(cx, cy) { _dabRaf(cx, cy); }
 
   function bindPainting() {
     const CNV = App.maskCanvas;
@@ -509,7 +563,7 @@ console.log("[BRUSH:core] loaded");
       if (CNV.style.pointerEvents !== "auto") return;
       e.preventDefault(); e.stopPropagation();
       painting = true;
-      try { App.map.dragging.disable(); } catch { }
+      try { App.map.dragging.disable(); } catch {}
       const [cx, cy] = getXY(e, CNV);
       dabAtScreenAndTile(cx, cy);
     });
@@ -523,19 +577,19 @@ console.log("[BRUSH:core] loaded");
     window.addEventListener("mouseup", () => {
       if (!painting) return;
       painting = false;
-      try { App.map.dragging.enable(); } catch { }
-    });
+      try { App.map.dragging.enable(); } catch {}
+    }, { passive: true });
   }
 
   // ---- Layers / polygons (کمینه) ----
   App.addGeoJSONLayer = function (feat, layer) {
     layer._props = { ...(feat?.properties || {}) };
-    try { layer.setStyle?.({ color: "#22c55e", weight: 2 }); } catch { }
+    try { layer.setStyle?.({ color: "#22c55e", weight: 2 }); } catch {}
     layer.on?.("click", () => {
       App.selectLayer(layer);
-      try { App.map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 19 }); } catch { }
+      try { App.map.fitBounds(layer.getBounds().pad(0.2), { maxZoom: 19 }); } catch {}
     });
-    try { App.drawnFG.addLayer(layer); } catch { }
+    try { App.drawnFG.addLayer(layer); } catch {}
     App.layers.push(layer);
   };
   App.layerUid = (layer) =>
@@ -543,10 +597,10 @@ console.log("[BRUSH:core] loaded");
   App.selectLayer = function (layer) {
     if (!layer) return;
     if (App.selectedLayer && App.selectedLayer !== layer) {
-      try { App.selectedLayer.setStyle({ weight: 2, color: "#22c55e" }); } catch { }
+      try { App.selectedLayer.setStyle({ weight: 2, color: "#22c55e" }); } catch {}
     }
     App.selectedLayer = layer;
-    try { App.selectedLayer.setStyle({ weight: 3, color: "#4f46e5" }); } catch { }
+    try { App.selectedLayer.setStyle({ weight: 3, color: "#4f46e5" }); } catch {}
     try { App.onLayerSelected?.(layer); } catch (e) { warn("onLayerSelected:error", e); }
   };
 
@@ -561,7 +615,6 @@ console.log("[BRUSH:core] loaded");
     if (!t) return null;
     const { x0, y0, w, h } = t.px;
     return { x: x0, y: y0, w, h, r: App.grid.active.r, c: App.grid.active.c };
-    // توجه: این BBox داخل تصویر اصلی است؛ بومِ تایل اندازه‌اش w×h است.
   };
   App.drawMaskImageToLocal = async function (blob) {
     const tm = App.tileMasks?.[App.grid.active.r]?.[App.grid.active.c];
@@ -600,11 +653,11 @@ console.log("[BRUSH:core] loaded");
   };
 
   // ---- Mask redraw (screen): only active tile ----
-  App.redrawMaskToScreen = function () {
+  App.redrawMaskToScreen = makeRafThrottle(() => {
     if (!App.map || !App.maskCtx || !App.sceneBounds) return;
     if (!App.map._loaded) return;
 
-    const t = activeTile();
+    const t  = activeTile();
     if (!t) return;
     const tm = App.tileMasks?.[App.grid.active.r]?.[App.grid.active.c];
     if (!tm) return;
@@ -614,8 +667,8 @@ console.log("[BRUSH:core] loaded");
     const ptLT = App.map.latLngToContainerPoint(lt);
     const ptRB = App.map.latLngToContainerPoint(rb);
 
-    const left = ptLT.x, top = ptLT.y, right = ptRB.x, bottom = ptRB.y;
-    const wScr = right - left, hScr = bottom - top;
+    const left  = ptLT.x, top = ptLT.y, right = ptRB.x, bottom = ptRB.y;
+    const wScr  = right - left, hScr = bottom - top;
 
     const w = App.maskCanvas.width / App.DPR;
     const h = App.maskCanvas.height / App.DPR;
@@ -630,7 +683,7 @@ console.log("[BRUSH:core] loaded");
       ctx.drawImage(tm.cnv, left, top, wScr, hScr);
     }
     ctx.restore();
-  };
+  });
 
   // ---- Scene set (optional external call) ----
   App.setScene = function ({ sceneId, bounds }) {
@@ -642,9 +695,8 @@ console.log("[BRUSH:core] loaded");
         App.map.fitBounds(b.pad(0.05));
         App.map.setMaxBounds(b.pad(0.10));
         App.map.options.maxBoundsViscosity = 1.0;
-      } catch { }
+      } catch {}
     }
-    // تخصیص بوم‌های تایل بعد از دانستن imgW/imgH انجام می‌شود (allocTileMasks)
   };
 
   // ---- Init ----
@@ -656,11 +708,11 @@ console.log("[BRUSH:core] loaded");
     gridRows = 3,
     gridCols = 3,
     sceneId = null,
-    autoPickVisibleTile = false,
+    autoPickVisibleTile = false, // (فعلاً استفاده نمی‌کنیم)
     autoFollowTiles = false
   } = {}) {
-    App.grid.rows = gridRows | 0;
-    App.grid.cols = gridCols | 0;
+    App.grid.rows = gridRows|0;
+    App.grid.cols = gridCols|0;
 
     createMap(mapId);
 
@@ -676,7 +728,7 @@ console.log("[BRUSH:core] loaded");
     }
 
     await loadSceneOverlay(overlayBoundsURL);
-    await allocTileMasks();              // ← ۹ بوم فول‌رز تایل
+    await allocTileMasks(); // ← بوم‌های فول‌رز تایل
     attachCanvases(maskId, cursorId);
 
     App.grid.autoFollow = !!autoFollowTiles;
@@ -697,7 +749,7 @@ console.log("[BRUSH:core] loaded");
     const isBrush = (mode === "brush");
     App.MODE = isBrush ? "brush" : "pan";
     if (App.maskCanvas) App.maskCanvas.style.pointerEvents = isBrush ? "auto" : "none";
-    try { isBrush ? App.map.dragging.disable() : App.map.dragging.enable(); } catch { }
+    try { isBrush ? App.map.dragging.disable() : App.map.dragging.enable(); } catch {}
   };
   App.setBrushSize = (px) => {
     App.Brush.size = Math.max(2, Math.min(256, parseInt(px || 24, 10)));
@@ -722,7 +774,8 @@ console.log("[BRUSH:core] loaded");
 
   // ---- Keyboard ----
   window.addEventListener("keydown", (e) => {
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target?.tagName || '').toUpperCase())) return;
+    const tag = (e.target?.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
     if (!e.altKey && /^[0-9]$/.test(e.key)) {
       const cid = (e.key === "0") ? 0 : parseInt(e.key, 10);
@@ -733,10 +786,10 @@ console.log("[BRUSH:core] loaded");
     else if (e.key === "e" || e.key === "E") App.setErase(!App.ERASE);
     else if (e.key === "[") App.setBrushSize(App.Brush.size - 1);
     else if (e.key === "]") App.setBrushSize(App.Brush.size + 1);
-    else if (e.key === "ArrowLeft") App.moveTile(0, -1, { wrap: true, fit: false });
+    else if (e.key === "ArrowLeft")  App.moveTile(0, -1, { wrap: true, fit: false });
     else if (e.key === "ArrowRight") App.moveTile(0, +1, { wrap: true, fit: false });
-    else if (e.key === "ArrowUp") App.moveTile(-1, 0, { wrap: true, fit: false });
-    else if (e.key === "ArrowDown") App.moveTile(+1, 0, { wrap: true, fit: false });
+    else if (e.key === "ArrowUp")    App.moveTile(-1, 0, { wrap: true, fit: false });
+    else if (e.key === "ArrowDown")  App.moveTile(+1, 0, { wrap: true, fit: false });
     else if (e.altKey && /^[1-9]$/.test(e.key)) App.setTileByNumber(parseInt(e.key, 10), { fit: false });
-  });
+  }, { passive: true });
 })();

@@ -18,7 +18,6 @@
   .chip { display: inline-flex; align-items: center; gap: 6px; background: #101728; border: 1px solid #1e2639; padding: 4px 8px; border-radius: 999px }
   .num { font-variant-numeric: tabular-nums }
   .kbd { background: #0f1626; border: 1px solid #23304a; padding: 0 6px; border-radius: 6px; font-size: 12px }
-
   /* tile loader overlay */
   #tileLoader { position: absolute; inset: 0; display: none; place-items: center; background: rgba(13,19,32,.45); z-index: 1405 }
   #tileLoader .box { padding: 10px 14px; border-radius: 10px; background: #0f1626; border: 1px solid #23304a; color: #dbe3f4; font: 14px/1.2 system-ui, sans-serif }
@@ -36,6 +35,7 @@
 {% endblock %}
 
 {% block left_panel %}
+<!-- همان بخش Polygon Properties بدون تغییر -->
 <div class="section">
   <div class="muted">Polygon Properties</div>
   <div class="toolbar" style="gap:10px;flex-wrap:wrap">
@@ -84,7 +84,7 @@
 
 {% block right_panel %}
 {{ super() }}
-
+<!-- همان بخش HUD + Brush + Grid بدون تغییر ساختاری -->
 <div class="section">
   <div class="hud">
     <div class="row">
@@ -147,10 +147,8 @@
     <button id="tileNext" class="btn">▶</button>
     <select id="tileSelect"></select>
     <button id="tileGo" class="btn primary">Go</button>
-
     <label class="chip" style="gap:6px">
-      <input id="autoFollowChk" type="checkbox" />
-      Auto-follow tile
+      <input id="autoFollowChk" type="checkbox" /> Auto-follow tile
     </label>
   </div>
 </div>
@@ -158,6 +156,7 @@
 
 {% block scripts %}
 <script>
+  // --- Global palette ---
   window.BRUSH_PALETTE = {
     0: { name: 'Background',            color: '#00000000' },
     1: { name: 'پوشش گیاهی پرتراکم',   color: '#106c2aff' },
@@ -174,220 +173,112 @@
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js" defer></script>
 <script src="{{ url_for('static', filename='js/brush/core.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/brush/io.js') }}" defer></script>
-<!-- اگر UI اختصاصی دیگری داری -->
 <script src="{{ url_for('static', filename='js/brush/ui.js') }}" defer></script>
 
 <script>
   (function () {
     const $ = (id) => document.getElementById(id);
 
-    function showCustomLabel() {
-      const sel = $('polyLabelSelect'), wrap = $('customLabelWrap');
-      if (!sel || !wrap) return;
-      wrap.style.display = (sel.value === '__custom__') ? 'block' : 'none';
-    }
+    // --- Polygon panel (custom label toggle) ---
     function wirePolygonPanel() {
       const sel = $('polyLabelSelect');
-      sel?.addEventListener('change', showCustomLabel);
-      showCustomLabel();
+      const wrap = $('customLabelWrap');
+      function toggle() { wrap.style.display = (sel.value === '__custom__') ? 'block' : 'none'; }
+      sel?.addEventListener('change', toggle);
+      toggle();
     }
 
-    function wireBrushUI() {
-      const A = window.BrushApp;
-      const btnPan = $('modePanBtn2');
-      const btnBrush = $('modeBrushBtn2');
-      const rng = $('brushSize2');
-      const lbl = $('brushSizeVal2');
-      const chkE = $('eraseChk2');
-      const btnClear = $('clearMask2');
-      const btnSave = $('savePng2');
-      const clsSel = $('brushClassSelect');
-
-      btnPan?.addEventListener('click', () => {
-        A.setMode('pan');
-        btnPan.classList.add('primary');
-        btnBrush.classList.remove('primary');
-      });
-      btnBrush?.addEventListener('click', () => {
-        A.setMode('brush');
-        btnBrush.classList.add('primary');
-        btnPan.classList.remove('primary');
-        if (A.maskCanvas?.style.pointerEvents !== 'auto') A.maskCanvas.style.pointerEvents = 'auto';
-      });
-      rng?.addEventListener('input', () => {
-        const v = parseInt(rng.value || '24', 10);
-        A.setBrushSize(v);
-        if (lbl) lbl.textContent = v + ' px';
-      });
-      chkE?.addEventListener('change', () => A.setErase(!!chkE.checked));
-      btnClear?.addEventListener('click', () => A.clearMask?.());
-      btnSave?.addEventListener('click', () => window.BrushIO?.saveCurrentTilePng?.({ alsoDownload: true }));
-
-      clsSel?.addEventListener('change', () => {
-        const v = parseInt(clsSel.value, 10);
-        if (Number.isFinite(v)) A.setBrushClass(v);
-      });
-
-      rng?.dispatchEvent(new Event('input'));
-      chkE?.dispatchEvent(new Event('change'));
-      if (clsSel) {
-        const v = parseInt(clsSel.value, 10);
-        if (Number.isFinite(v)) A.setBrushClass(v);
-      }
-    }
-
+    // --- HUD + Grid sync ---
     function wireGridControls() {
       const A = window.BrushApp;
-      const prev = $('tilePrev');
-      const next = $('tileNext');
-      const go = $('tileGo');
-      const sel = $('tileSelect');
+      const prev = $('tilePrev'), next = $('tileNext'), go = $('tileGo'), sel = $('tileSelect'), chk = $('autoFollowChk');
       const huds = [$('hudTileRC'), $('hudTileRC2')];
-      const chk = $('autoFollowChk');
 
-      // HUD sync
       document.addEventListener('brush:tilechange', (ev) => {
         const { r, c } = ev.detail || { r: 0, c: 0 };
-        huds.forEach(h => h && (h.textContent = `r${r + 1}×c${c + 1}`));
+        huds.forEach(h => h && (h.textContent = `r${r+1}×c${c+1}`));
         if (sel) sel.value = `${r},${c}`;
       });
 
-      prev?.addEventListener('click', () => { A.moveTile(0, -1, { wrap: true, fit: false }); });
-      next?.addEventListener('click', () => { A.moveTile(0, +1, { wrap: true, fit: false }); });
+      prev?.addEventListener('click', () => A.moveTile(0,-1,{wrap:true,fit:false}));
+      next?.addEventListener('click', () => A.moveTile(0,+1,{wrap:true,fit:false}));
       go?.addEventListener('click', () => {
-        const v = sel?.value || '0,0';
-        const [r, c] = v.split(',').map(n => parseInt(n, 10));
-        A.setActiveTile(r, c, { fit: false });
+        const [r,c] = (sel?.value||'0,0').split(',').map(n=>parseInt(n,10));
+        A.setActiveTile(r,c,{fit:false});
       });
 
-      chk?.addEventListener('change', () => {
-        A.setAutoFollowTiles(!!chk.checked);
-      });
-      if (typeof A.grid?.autoFollow === 'boolean') {
-        if (chk) chk.checked = !!A.grid.autoFollow;
-      }
+      chk?.addEventListener('change',()=>A.setAutoFollowTiles(!!chk.checked));
+      if (typeof A.grid?.autoFollow === 'boolean') chk.checked = !!A.grid.autoFollow;
     }
 
+    // --- Grid dropdown builder ---
     async function populateGridDropdown(sceneId) {
       const sel = $('tileSelect'); if (!sel) return;
       sel.innerHTML = '';
-      const list = await fetch('/api/grid/list?scene_id=' + encodeURIComponent(sceneId), { cache: 'no-store' })
-        .then(r => r.json()).catch(() => null);
+      const list = await fetch(`/api/grid/list?scene_id=${encodeURIComponent(sceneId)}&t=${Date.now()}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
       if (!list || !list.ok) return;
-      list.items.sort((a, b) => (a.r * 100 + a.c) - (b.r * 100 + b.c));
-      list.items.forEach(it => {
-        const op = document.createElement('option');
-        op.value = it.r + ',' + it.c;
-        op.textContent = `r${it.r + 1}×c${it.c + 1}`;
+      list.items.sort((a,b)=>(a.r*100+a.c)-(b.r*100+b.c));
+      list.items.forEach(it=>{
+        const op=document.createElement('option');
+        op.value=`${it.r},${it.c}`;
+        op.textContent=`r${it.r+1}×c${it.c+1}`;
         sel.appendChild(op);
       });
-      sel.value = '0,0';
-      const huds = [$('hudTileRC'), $('hudTileRC2')];
-      huds.forEach(h => h && (h.textContent = 'r1×c1'));
+      sel.value='0,0';
+      [$('hudTileRC'),$('hudTileRC2')].forEach(h=>h&&(h.textContent='r1×c1'));
     }
 
-    async function ensureTilesReady(sceneId) {
-      const probe = `/api/grid/list?scene_id=${encodeURIComponent(sceneId)}&t=${Date.now()}`;
-      let r = await fetch(probe, { cache: 'no-store' });
-      if (r.status === 200) return true;
-      if (r.status !== 404) throw new Error('grid/list http ' + r.status);
-
-      // build tiles
-      const sel = await fetch('/api/scenes/select', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene_id: sceneId })
-      });
-      if (!sel.ok) {
-        let j = {}; try { j = await sel.json(); } catch {}
-        throw new Error('scenes/select http ' + sel.status + ' ' + (j.error || ''));
-      }
-
-      r = await fetch(probe, { cache: 'no-store' });
-      return r.status === 200;
-    }
-
-    function overrideTileLoadingToPageOverlay() {
-      const A = window.BrushApp;
-      if (!A) return;
-      A.setTileLoading = function(on) {
-        const el = document.getElementById('tileLoader');
-        if (!el) return;
-        el.style.display = on ? 'grid' : 'none';
-      };
-    }
-
-    async function checkAccessOrRedirect() {
-      const res = await fetch('/api/my_tiles', { cache: 'no-store' });
-      if (res.status === 401) {
-        location.href = '/login?next=' + encodeURIComponent(location.pathname);
-        return false;
-      }
-      const j = await res.json().catch(() => null);
-      if (!j || !j.ok || !Array.isArray(j.items) || j.items.length === 0) {
-        location.href = '/no-access';
-        return false;
-      }
-      return true;
-    }
-
+    // --- Scene + tiles bootstrap ---
     async function initBrush() {
-      // 0) دسترسی
-      const ok = await checkAccessOrRedirect();
-      if (!ok) return;
+      // check auth & access
+      const res=await fetch('/api/my_tiles',{cache:'no-store'});
+      if(res.status===401){location.href='/login?next='+encodeURIComponent(location.pathname);return;}
+      const j=await res.json().catch(()=>null);
+      if(!j?.ok||!Array.isArray(j.items)||j.items.length===0){location.href='/no-access';return;}
 
-      // 1) صبر تا Leaflet و core/io
-      const wait = (pred, ms = 7000) => new Promise((res, rej) => {
-        const t0 = Date.now();
-        (function tick(){ if (pred()) return res(true); if (Date.now()-t0>ms) return rej(new Error('timeout')); setTimeout(tick, 60); })();
+      // wait until Leaflet + BrushApp are ready
+      await new Promise((res,rej)=>{
+        const t0=Date.now();(function tick(){if(window.L&&window.BrushApp?.init)return res(true);if(Date.now()-t0>7000)return rej(new Error('timeout'));setTimeout(tick,60);})(); 
       });
-      await wait(() => window.L && window.BrushApp && typeof window.BrushApp.init === 'function');
 
-      // 2) init
+      // init brush core
       await window.BrushApp.init({
-        mapId: 'map',
-        maskId: 'maskCanvas',
-        cursorId: 'cursorCanvas',
-        overlayBoundsURL: '/api/s2_bounds_wgs84',
-        gridRows: 3,
-        gridCols: 3,
-        autoPickVisibleTile: false,
-        autoFollowTiles: false
+        mapId:'map',maskId:'maskCanvas',cursorId:'cursorCanvas',
+        overlayBoundsURL:'/api/s2_bounds_wgs84',
+        gridRows:3,gridCols:3,autoPickVisibleTile:false,autoFollowTiles:false
       });
 
-      // 3) لودر
-      overrideTileLoadingToPageOverlay();
+      // override tile loading overlay
+      window.BrushApp.setTileLoading=(on)=>{
+        const el=$('tileLoader'); if(el) el.style.display=on?'grid':'none';
+      };
 
-      // 4) صحنه‌ی جاری
-      const sc = await fetch('/api/scenes/current', { cache: 'no-store' }).then(r => r.json()).catch(() => null);
-      if (!sc || !sc.ok || !sc.scene) { alert('No scene selected'); return; }
-      const sid = sc.scene.id;
+      // fetch current scene (یک‌بار)
+      const sc=await SceneStore.current().catch(()=>null);
+      if(!sc||!sc.ok||!sc.scene){alert('No scene selected');return;}
+      const sid=sc.scene.id;
 
-      // 5) آماده‌سازی تایل‌ها
-      const ready = await ensureTilesReady(sid);
-      if (!ready) { alert('Tiles not ready for this scene'); return; }
-
-      // 6) دراپ‌داون تایل‌ها + ست اولیه
-      await populateGridDropdown(sid);
-      window.BrushApp.setActiveTile(0, 0, { fit: true });
-
-      // 7) بارگذاری پولیگان‌ها (نیازمند io.js)
-      if (window.BrushIO?.reloadPolygonsForScene) {
-        try { await window.BrushIO.reloadPolygonsForScene(); }
-        catch (e) { console.error('polygons:load:error', e); }
+      // ensure grid ready
+      const probe=`/api/grid/list?scene_id=${encodeURIComponent(sid)}&t=${Date.now()}`;
+      let r=await fetch(probe,{cache:'no-store'});
+      if(r.status===404){
+        const sel=await fetch('/api/scenes/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene_id:sid})});
+        if(!sel.ok)throw new Error('scenes/select http '+sel.status);
+        r=await fetch(probe,{cache:'no-store'});
       }
+      if(r.status!==200){alert('Tiles not ready');return;}
+
+      await populateGridDropdown(sid);
+      window.BrushApp.setActiveTile(0,0,{fit:true});
+      if(window.BrushIO?.reloadPolygonsForScene){try{await window.BrushIO.reloadPolygonsForScene();}catch(e){console.error('polygons:load:error',e);}}
     }
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      try {
+    document.addEventListener('DOMContentLoaded',async()=>{
+      try{
         await initBrush();
-        wireBrushUI();
         wirePolygonPanel();
         wireGridControls();
-      } catch (e) {
-        console.error(e);
-        alert('Initialization failed: ' + e.message);
-      }
+      }catch(e){console.error(e);alert('Initialization failed: '+e.message);}
     });
   })();
 </script>
