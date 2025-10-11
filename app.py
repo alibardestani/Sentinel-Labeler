@@ -5,6 +5,8 @@ from flask import Flask, session
 from flask_migrate import Migrate
 from models import db, User
 from config import settings
+from project2 import project2_bp
+
 
 
 def create_app() -> Flask:
@@ -42,6 +44,7 @@ def create_app() -> Flask:
     app.register_blueprint(auth_bp)          # /login, /logout
     app.register_blueprint(pages_bp)         # /, /brush, /polygon, /no-access
     app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(project2_bp)
 
     # ---- Context Processor (جهت دسترسی به کاربر در تمام قالب‌ها) ----
     @app.context_processor

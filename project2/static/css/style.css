@@ -1,0 +1,66 @@
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: row;
+}
+#map {
+  width: 50%;
+  height: 100%;
+}
+#viewer {
+  width: 50%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #111;
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+#rgbCanvas {
+  width: 95%;
+  height: 80%;
+  border: 2px solid #555;
+}
+#statusPanel {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#saveBtn {
+  background: #00d4ff;
+  color: #000;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+#saveBtn:hover {
+  background: #33e0ff;
+}
+#contextMenu {
+  position: absolute;
+  background: #333;
+  color: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 9999;
+}
+#contextMenu div {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+#contextMenu div:hover {
+  background: #555;
+}

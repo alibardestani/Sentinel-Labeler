@@ -32,6 +32,7 @@
 /checkpoints/
 /logs/
 /tmp/
+/Sentinel_ESRI_Compare_App_fixed_current/
 
 # --- local data (never push to repo) ---
 /data/
