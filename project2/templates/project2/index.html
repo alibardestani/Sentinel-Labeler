@@ -4,28 +4,25 @@
 {% block head %}
   {{ super() }}
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    .two-col { display:grid; grid-template-columns: 1fr 480px; gap:10px; height:calc(100vh - 110px) }
-    #map { width:100%; height:100%; border:1px solid var(--line); border-radius:14px; background:#0d1320; }
-    #canvasContainer { background:var(--pane); border:1px solid var(--line); border-radius:14px; padding:10px; display:grid; grid-template-rows:auto 1fr }
-    #rgbCanvas { width:100%; height:100%; border:1px dashed #23304a; border-radius:10px; background:#0f1626 }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('project2_bp.static', filename='css/style.css') }}">
 {% endblock %}
 
 {% block left_panel %}
   <div class="section">
     <div class="muted">Sentinel Scenes</div>
-    <div class="toolbar" style="gap:8px;align-items:center">
+    <div class="toolbar">
       <button id="genPngsBtn" class="btn">Generate PNGs</button>
     </div>
     {% if shapefile_missing %}
-      <div class="muted" style="font-size:12px;color:#ffb4a6">No shapefile found in <code>/data/polygons/</code>.</div>
+      <div class="muted" style="font-size:12px;color:#ffb4a6">
+        No shapefile found in <code>/data/polygons/</code>.
+      </div>
     {% endif %}
   </div>
 
   <div class="section">
     <div class="muted">Polygon</div>
-    <div class="toolbar" style="gap:8px;align-items:center">
+    <div class="toolbar">
       <input id="polyIndex" type="number" min="0" step="1" class="btn" placeholder="index (e.g. 0)" style="width:120px">
       <button id="showBtn" class="btn">Show</button>
     </div>
@@ -44,39 +41,28 @@
 {% endblock %}
 
 {% block right_panel %}
-  {{ super() }}
   <div class="section">
-    <div class="muted">Selected Polygon</div>
-    <div class="toolbar" style="gap:6px;align-items:center">
+    <div class="muted">Status</div>
+    <div id="statusPanel" class="toolbar" style="gap:10px; align-items:center;">
       <span class="chip">Status: <b id="statusText">Unknown</b></span>
       <span class="chip">Reviewed: <b id="statusReviewedText">Pending</b></span>
+      <button id="saveBtn" class="btn primary" style="margin-left:auto">Save All</button>
     </div>
-  </div>
-  <div class="section">
-    <div class="muted">Save</div>
-    <div class="toolbar" style="gap:8px;align-items:center">
-      <button id="saveBtn" class="btn primary">Save All</button>
-    </div>
+    <div class="muted" style="font-size:12px">Right-click a polygon on the map to set status.</div>
   </div>
 {% endblock %}
 
 {% block scripts %}
   {{ super() }}
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-
-  <!-- Provide data + api base to JS -->
   <script>
-    window.polygonsData   = {{ polygons_json|safe }};
-    window.PROJECT2_BASE  = "{{ url_for('project2_bp.index')[:-1] }}";  // "/project2"
+    window.polygonsData  = {{ polygons_json|safe }};
+    window.PROJECT2_BASE = "{{ url_for('project2_bp.index')[:-1] }}";
   </script>
-
-  <!-- Viewer logic -->
   <script src="{{ url_for('project2_bp.static', filename='js/viewer.js') }}" defer></script>
-
-  <!-- Buttons -->
   <script>
     document.addEventListener("DOMContentLoaded", () => {
-      const gen = document.getElementById("genPngsBtn");
+      const gen  = document.getElementById("genPngsBtn");
       const show = document.getElementById("showBtn");
 
       gen?.addEventListener("click", async () => {
@@ -93,16 +79,33 @@
       });
 
       show?.addEventListener("click", async () => {
-        const idx = parseInt(document.getElementById("polyIndex").value, 10);
+        const idxEl = document.getElementById("polyIndex");
+        const idx = parseInt(idxEl.value, 10);
         if (Number.isNaN(idx)) return alert("Enter a valid index.");
+
         const r = await fetch(`${window.PROJECT2_BASE}/get_polygon_rgb/${idx}`);
         const d = await r.json();
         if (!r.ok) return alert(d.error || "Not found");
-        // Simulate map click behavior
+
         window.selectedId = idx;
         window.selectedFeature = { properties: { index: idx } };
+
         if (window.drawImageToCanvas) {
-          window.drawImageToCanvas(d.image_path, d.polygon_utm, d.bbox);
+          window.drawImageToCanvas(d.image_path, d.mask_path || null, d.polygon_utm || null, d.bbox || null);
+        }
+        if (window.onPolygonLoaded) {
+          window.onPolygonLoaded(d);
+        }
+      });
+
+      const saveBtn = document.getElementById("saveBtn");
+      saveBtn?.addEventListener("click", async () => {
+        try {
+          const r = await fetch(`${window.PROJECT2_BASE}/save_all`, { method: "POST" });
+        const j = await r.json().catch(()=>null);
+          alert(j?.success ? "Shapefile saved." : (j?.error || "Save failed"));
+        } catch {
+          alert("Save failed.");
         }
       });
     });

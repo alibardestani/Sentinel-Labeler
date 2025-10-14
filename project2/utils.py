@@ -1,10 +1,9 @@
-from __future__ import annotations
+
 import os, zipfile, geopandas as gpd, numpy as np, rasterio
 from shapely.geometry import shape, box
-
+from S2reader import SentinelProductReader
 from rasterio.io import DatasetReader
 
-from .S2reader import SentinelProductReader
 def load_or_extract_shapefile(zip_path):
     extract_dir = zip_path.replace(".zip", "")
     os.makedirs(os.path.dirname(zip_path), exist_ok=True)
