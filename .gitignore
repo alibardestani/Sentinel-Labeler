@@ -1,56 +1,130 @@
-# --- raw satellite data & big assets ---
-# Sentinel-2 SAFE and band files
+# ===== Satellite & remote sensing =====
 *.SAFE/
-*.jp2
-*.tif
-*.tiff
+**/*.SAFE/
+**/*.jp2
+**/*.tif
+**/*.tiff
+**/*.vrt
+**/*.img       # ERDAS Imagine
+**/*.ecw
+**/*.sid
+**/*.hdf
+**/*.h5
+**/*.nc
+**/*.grd
+**/*.bil
+**/*.bsq
+**/*.bip
+**/*.dat
+**/*.hdr
+**/*.prm
 
-# ML / DL model weights
-*.pt
-*.pth
-*.onnx
-*.h5
-*.ckpt
-*.pb
+# GDAL/ESRI aux + overviews
+**/*.aux
+**/*.aux.xml
+**/*.ovr
+**/*.rrd
 
-# numpy archives (large)
-*.npz
-*.npy
+# World files
+**/*.tfw
+**/*.jgw
+**/*.pgw
+**/*.wld
 
-# archives / videos (huge, rarely needed in repo)
-*.zip
-*.rar
-*.7z
-*.tar.gz
-*.mp4
-*.mkv
+# Vector GIS (shapefile + sidecars, GPKG, etc.)
+**/*.shp
+**/*.shx
+**/*.dbf
+**/*.prj
+**/*.cpg
+**/*.sbn
+**/*.sbx
+**/*.qpj
+**/*.gpkg
+**/*.gdb
+**/*.gdb/**
 
-# --- build / runtime outputs ---
+# Large vector/tiles containers
+**/*.mbtiles
+**/*.tpk
+**/*.tpkx
+**/*.geopackage
+**/*.fgb      # FlatGeobuf
+
+# Optional: if your GeoJSONs may contain sensitive geometry, keep ignored
+# (comment out if you need them versioned)
+**/*.geojson
+**/*.topojson
+**/*.jsonl
+
+# ===== Models & scientific artifacts =====
+**/*.pt
+**/*.pth
+**/*.onnx
+**/*.ckpt
+**/*.pb
+**/*.h5
+**/*.pkl
+**/*.joblib
+**/*.npz
+**/*.npy
+
+# ===== Archives & big binaries =====
+**/*.zip
+**/*.rar
+**/*.7z
+**/*.tar
+**/*.tar.gz
+**/*.gz
+**/*.bz2
+**/*.xz
+**/*.lz
+**/*.mp4
+**/*.mkv
+**/*.mov
+**/*.avi
+
+# ===== Project outputs / cache =====
 /output/
 /models/
 /runs/
 /checkpoints/
 /logs/
 /tmp/
-/Sentinel_ESRI_Compare_App_fixed_current/
-
-# --- local data (never push to repo) ---
-/data/
-/data/**
-
-# cache / temps
-__pycache__/
+/cache/
+/.venv/
+venv/
+env/
+pip-wheel-metadata/
+.eggs/
+*.egg-info/
 *.log
 *.tmp
-.DS_Store
 
-# IDE / editor
+# Ignore any data dir anywhere (critical)
+**/data/
+**/data/**
+
+# Project-specific local dirs you mentioned
+Sentinel_ESRI_Compare_App_fixed_current/
+Sentinel-2-Shapefile-Index-master1/
+polygons/
+
+# ===== Node/Front-end noise (if present) =====
+node_modules/
+dist/
+build/
+
+# ===== OS / IDE =====
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 *.swp
 
-# IMPORTANT:
-# اگر PNG های UI لازم داری (مثل icons داخل static/),
-# کل PNG را ignore نکن! فقط خروجی‌ها را پوشش بده.
-# تمام خروجی PNG ها در /output/ پوشش داده شده است.
-
+# ===== Keep UI assets safe =====
+# Do NOT blanket-ignore all PNGs. Only raster data above is excluded.
+# Static UI icons/images in /static remain tracked.
