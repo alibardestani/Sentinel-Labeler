@@ -18,9 +18,7 @@ def create_app() -> Flask:
         OUTPUT_DIR=str(settings.OUTPUT_DIR),
         S2_RGB_TIF=str(settings.S2_RGB_TIF),
         SQLALCHEMY_DATABASE_URI=(
-            "mysql+pymysql://root:root@localhost/sen2"
-            "?unix_socket=/Applications/MAMP/tmp/mysql/mysql.sock"
-            "&charset=utf8mb4"
+            "mysql+pymysql://root@localhost:3306/sen2?charset=utf8mb4"
         ),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 1800},
@@ -75,4 +73,4 @@ def create_app() -> Flask:
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=False)

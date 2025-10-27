@@ -122,14 +122,15 @@ function setStatusLabels(props) {
   const stEl = document.getElementById("statusText");
   const rvEl = document.getElementById("statusReviewedText");
   if (stEl) stEl.textContent = props?.status ?? "Unknown";
-  if (rvEl) rvEl.textContent = props?.status_reviewed ?? "Pending";
+  if (rvEl) rvEl.textContent = props?.status_rev ?? "Pending";
 }
 
 function refreshTooltip(layer, props) {
   const txt =
     `Code: ${props.code ?? "N/A"}<br>` +
     `Status: ${props.status ?? "Unknown"}<br>` +
-    `Reviewed: ${props.status_reviewed ?? "Pending"}`;
+    `Reviewed: ${props.status_rev ?? "Pending"}<br>` +
+    `label: ${props.uses_fruit ?? "Unknown"}`;
   layer.unbindTooltip();
   layer.bindTooltip(txt);
 }
@@ -139,7 +140,7 @@ function highlight(layer) {
     polygonsLayer.resetStyle(selectedLayer);
   }
   selectedLayer = layer;
-  layer.setStyle({ color: "#20c997", weight: 3, opacity: 1, fillOpacity: 0.2 });
+  layer.setStyle({ color: "#0015ff", weight: 3, opacity: 1, fillOpacity: 0.2 });
 }
 
 function updateField(field, value) {
@@ -164,47 +165,53 @@ function updateField(field, value) {
     .catch(err => console.error("updateField error:", err));
 }
 
-function showContextMenu(e, feature) {
-  document.getElementById("contextMenu")?.remove();
-  if (e.originalEvent) e.originalEvent.preventDefault();
-  const menu = document.createElement("div");
-  menu.id = "contextMenu";
-  Object.assign(menu.style, {
-    position: "absolute",
-    top: (e.originalEvent?.clientY || e.clientY) + "px",
-    left: (e.originalEvent?.clientX || e.clientX) + "px",
-    background: "#222",
-    color: "#fff",
-    borderRadius: "8px",
-    padding: "8px",
-    font: "14px sans-serif",
-    zIndex: 99999,
-    minWidth: "220px",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.3)"
-  });
-  const title = document.createElement("div");
-  title.textContent = "Set fields";
-  title.style.cssText = "font-weight:700;margin-bottom:6px;opacity:0.9;";
-  menu.appendChild(title);
-  const addSec = (label, field) => {
-    const hdr = document.createElement("div");
-    hdr.textContent = label;
-    hdr.style.cssText = "margin:6px 0 4px;font-weight:600;";
-    menu.appendChild(hdr);
-    STATUS_OPTIONS.forEach(opt => {
-      const item = document.createElement("div");
-      item.textContent = opt;
-      item.style.cssText = "padding:4px 6px;cursor:pointer;";
-      item.onmouseenter = () => item.style.background = "#333";
-      item.onmouseleave = () => item.style.background = "transparent";
-      item.onclick = () => { updateField(field, opt); menu.remove(); };
-      menu.appendChild(item);
-    });
-  };
-  addSec("Status:", "status");
-  addSec("Reviewed:", "status_reviewed");
-  document.body.appendChild(menu);
-  setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 0);
+
+function showContextMenu(e, feature, layer) {
+// remove any existing
+document.getElementById("contextMenu")?.remove();
+
+
+const menu = document.createElement("div");
+menu.id = "contextMenu";
+menu.style.position = "absolute";
+menu.style.top = (e.originalEvent?.clientY || e.clientY) + "px";
+menu.style.left = (e.originalEvent?.clientX || e.clientX) + "px";
+menu.style.background = "#222";
+menu.style.color = "#fff";
+menu.style.borderRadius = "8px";
+menu.style.padding = "8px";
+menu.style.font = "14px sans-serif";
+menu.style.zIndex = 99999;
+menu.style.minWidth = "220px";
+menu.style.boxShadow = "0 6px 18px rgba(0,0,0,0.3)";
+
+
+const title = document.createElement("div");
+title.textContent = "Set status_reviewed";
+title.style.fontWeight = "700";
+title.style.marginBottom = "6px";
+title.style.opacity = "0.9";
+menu.appendChild(title);
+
+
+// گزینه‌ها فقط برای status_reviewed
+STATUS_OPTIONS.forEach(opt => {
+const item = document.createElement("div");
+item.textContent = opt;
+item.style.padding = "4px 6px";
+item.style.cursor = "pointer";
+item.onmouseenter = () => item.style.background = "#333";
+item.onmouseleave = () => item.style.background = "transparent";
+item.onclick = () => {
+updateField("status_rev", opt);
+menu.remove();
+};
+menu.appendChild(item);
+});
+
+
+document.body.appendChild(menu);
+setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 0);
 }
 
 function initMap() {
@@ -219,7 +226,7 @@ function initMap() {
 
   polygonsLayer = L.geoJSON(data, {
     style: f => ({
-      color: f.properties.status_checked === "Reviewed" ? "#20c997" : "#ff8c00",
+      color: f.properties.status_rev === "None" ? "#ff8c00" : "#20c997",
       weight: 2,
       opacity: 0.9,
       fillOpacity: 0.12

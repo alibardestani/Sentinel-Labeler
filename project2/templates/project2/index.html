@@ -41,14 +41,16 @@
 {% endblock %}
 
 {% block right_panel %}
-  <div class="section">
-    <div class="muted">Status</div>
-    <div id="statusPanel" class="toolbar" style="gap:10px; align-items:center;">
-      <span class="chip">Status: <b id="statusText">Unknown</b></span>
-      <span class="chip">Reviewed: <b id="statusReviewedText">Pending</b></span>
-      <button id="saveBtn" class="btn primary" style="margin-left:auto">Save All</button>
+  <div class="section" id="viewer" style="display:flex; flex-direction:column; gap:10px;">
+    <div id="statusPanel" style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
+      <h3 style="margin:0; font-weight:600;">
+        Reviewed: <span id="statusReviewedText">Not Reviewed</span>
+      </h3>
+      <button id="saveBtn" class="btn primary">Save Changes</button>
     </div>
-    <div class="muted" style="font-size:12px">Right-click a polygon on the map to set status.</div>
+    <div class="muted" style="font-size:12px;">
+      Right-click a polygon on the map to set <code>status_rev</code>.
+    </div>
   </div>
 {% endblock %}
 
