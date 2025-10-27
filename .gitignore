@@ -127,4 +127,4 @@ Thumbs.db
 
 # ===== Keep UI assets safe =====
 # Do NOT blanket-ignore all PNGs. Only raster data above is excluded.
-# Static UI icons/images in /static remain tracked.
+# Static UI icons/images in /static remain tracked.*.png
