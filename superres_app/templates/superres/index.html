@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Super Resolution (EDSR){% endblock %}
+{% block mask_controls_class %}hidden{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    .sr-panel {
+      background: var(--pane);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .sr-panel h2 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .sr-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+    .sr-input,
+    .sr-select {
+      width: 100%;
+      background: #0f1626;
+      color: var(--text);
+      border: 1px solid #23304a;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    .sr-result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+      gap: 12px;
+      width: 100%;
+    }
+    .sr-card {
+      background: #0f1626;
+      border: 1px solid #23304a;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .sr-card img {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      border: 1px solid #1e2639;
+      background: #000;
+      display: block;
+      margin-bottom: 6px;
+    }
+    .sr-metrics {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+  </style>
+{% endblock %}
+
+{% block main %}
+
+  <div class="sr-panel">
+    <h2>EDSR Super-Resolution</h2>
+
+    <form id="sr-form" enctype="multipart/form-data">
+      <label class="sr-label">Select an example image</label>
+      <select name="example_path" id="sr-example" class="sr-select">
+        <option value="">-- choose example --</option>
+        {% for item in example_items %}
+          <option value="{{ item.path }}">{{ item.name }}</option>
+        {% endfor %}
+      </select>
+
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+        or upload your own LR image (PNG/JPG):
+      </div>
+
+      <input type="file" name="upload_file" id="sr-upload" class="sr-input" accept=".png,.jpg,.jpeg" />
+
+      <label class="sr-label">Model</label>
+      <select name="model_arch" id="sr-model" class="sr-select">
+        {% for m in model_options %}
+          <option value="{{ m.value }}">{{ m.label }}</option>
+        {% endfor %}
+      </select>
+
+      <button type="submit" class="btn primary" style="width:100%;margin-top:8px;">
+        🚀 Generate Super-Resolution
+      </button>
+    </form>
+
+    <div id="sr-status" style="font-size:12px;color:var(--muted);margin-top:10px;">
+      Configure input and click "Generate".
+    </div>
+  </div>
+
+  <div id="sr-output" class="sr-panel" style="display:none;">
+    <h2>Results</h2>
+    <div id="sr-mode" style="font-size:12px;margin-bottom:10px;color:var(--muted);"></div>
+
+    <div class="sr-result-grid" id="sr-images"></div>
+  </div>
+
+{% endblock %}
+
+{% block right_panel %}
+  {{ super() }}
+  <div class="section">
+    <div class="muted">How it works</div>
+    <div class="toolbar" style="flex-direction:column;align-items:flex-start;font-size:12px;line-height:1.5;gap:6px">
+      <div class="muted" style="font-size:12px;">
+        - Select a low-res Sentinel chip or upload one.<br/>
+        - Choose EDSR variant.<br/>
+        - We upscale and (if GT exists) report PSNR / SSIM.<br/>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script src="{{ url_for('superres.static', filename='superres/superres.js') }}"></script>
+{% endblock %}
