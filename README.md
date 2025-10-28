@@ -91,10 +91,11 @@ python app.py
 python app.py
 ```
 
-Now open in browser:
-	•	🛰 Main app → http://localhost:5001/
-	•	🧩 Polygon Navigator → http://localhost:5001/polygon-navigator/
-	•	⚡ Super-Resolution → http://localhost:5001/superres/
+Once the application is running, open these URLs in your browser:
+
+* **🛰 Main Labeler App:** `http://localhost:5001/`
+* **🧩 Polygon Navigator (QA):** `http://localhost:5001/polygon-navigator/`
+* **⚡ Super-Resolution:** `http://localhost:5001/superres/`
 
 If you’re not logged in, you’ll be redirected to /login.
 
