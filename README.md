@@ -15,12 +15,12 @@ Integrated Flask-based system for:
 git clone https://github.com/alibardestani/Sentinel-Labeler.git
 cd Sentinel-Labeler
 
-2️⃣ Create & activate virtual environment
+### 2️⃣ Create & activate virtual environment
 
 python3 -m venv .venv
 source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
 
-3️⃣ Install dependencies
+### 3️⃣ Install dependencies
 
 pip install --upgrade pip
 pip install -r requirements.txt
@@ -38,7 +38,7 @@ pip install super-image
 
 ⸻
 
-🗄 Create MySQL database
+### 🗄 Create MySQL database
 
 CREATE DATABASE sen2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'sen2user'@'localhost' IDENTIFIED BY 'yourpass';
@@ -48,7 +48,7 @@ FLUSH PRIVILEGES;
 
 ⸻
 
-⚙️ Create .env in project root
+### ⚙️ Create .env in project root
 
 # Flask
 SECRET_KEY=change-this
@@ -74,7 +74,7 @@ DISABLE_TORCH=1
 
 ⸻
 
-🗃 Initialize database tables
+### 🗃 Initialize database tables
 
 flask db upgrade
 # or just run once (app does a DB sanity check on startup):
@@ -83,7 +83,7 @@ python app.py
 
 ⸻
 
-▶️ Run the app
+### ▶️ Run the app
 
 python app.py
 
@@ -96,7 +96,7 @@ If you’re not logged in, you’ll be redirected to /login.
 
 ⸻
 
-🧠 Modes recap
+### 🧠 Modes recap
 
 Mode	torch needed?	Behavior
 local-mock	no	Fake SR preview (dev mode)
@@ -108,7 +108,7 @@ Set mode using ENV_MODE in .env.
 
 ⸻
 
-📂 Folder structure
+### 📂 Folder structure
 
 Sentinel-Labeler/
 ├── app.py                      # Flask entrypoint
@@ -148,7 +148,7 @@ Sentinel-Labeler/
 
 ⸻
 
-✅ Commands Cheat Sheet
+### ✅ Commands Cheat Sheet
 
 Task	Command
 Clone repo	git clone https://github.com/alibardestani/Sentinel-Labeler.git
@@ -164,7 +164,7 @@ Open UI	http://localhost:5001/
 
 ⸻
 
-👥 Repo
+### 👥 Repo
 
 https://github.com/alibardestani/Sentinel-Labeler
 
