@@ -14,6 +14,7 @@ Integrated Flask-based system for:
 ```bash
 git clone https://github.com/alibardestani/Sentinel-Labeler.git
 cd Sentinel-Labeler
+```
 
 ### 2️⃣ Create & activate virtual environment
 
