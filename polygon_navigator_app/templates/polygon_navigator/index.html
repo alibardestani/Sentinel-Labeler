@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Polygon Navigator & Labeler{% endblock %}
+
+{# Hide the brush UI in header for this page #}
+{% block mask_controls_class %}hidden{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    /* Adapted styles to fit dark theme */
+    .pn-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      background: var(--pane);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .pn-toolbar .btn {
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .pn-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #0f1626;
+      color: var(--text);
+    }
+
+    .pn-status {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+
+    /* map container uses remaining viewport height like other pages */
+    #pn-map-wrap {
+      height: calc(100vh - 180px); /* header + toolbar + padding */
+      background: #0b0f19;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #pn-map {
+      position: absolute;
+      inset: 0;
+    }
+
+    /* Leaflet popup table style in dark */
+    table.prop {
+      border-collapse: collapse;
+      font-size: 12px;
+      color: #e7ecf3;
+      background: #0f1524;
+    }
+    table.prop td {
+      border: 1px solid #23304a;
+      padding: 2px 6px;
+    }
+
+    .pn-popup-actions button {
+      margin: 0 6px 6px 0;
+    }
+  </style>
+{% endblock %}
+
+
+{% block main %}
+
+  <!-- toolbar -->
+  <div class="pn-toolbar">
+    <input
+      type="file"
+      id="shpZip"
+      accept=".zip"
+      class="btn"
+      style="background:var(--btn);border:1px solid var(--btnh);border-radius:10px;color:var(--text);padding:8px 10px;"
+    />
+
+    <button id="prevBtn" class="btn" disabled>⟵ Previous</button>
+    <button id="nextBtn" class="btn" disabled>Next ⟶</button>
+    <button id="saveBtn" class="btn" disabled>💾 Save Shapefile</button>
+
+    <span id="position" class="pn-badge">0 / 0</span>
+
+    <div id="saveLink" class="pn-status"></div>
+  </div>
+
+  <!-- map area -->
+  <div id="pn-map-wrap">
+    <div id="pn-map"></div>
+  </div>
+
+{% endblock %}
+
+
+{% block right_panel %}
+  {{ super() }}
+  <div class="section">
+    <div class="muted">Polygon status</div>
+    <div class="toolbar" style="align-items:flex-start;flex-direction:column;font-size:12px;gap:6px">
+      <div class="muted" style="font-size:12px;">
+        - Upload a ZIP of a shapefile.<br/>
+        - Walk through polygons with Next/Previous.<br/>
+        - Set quality in popup.<br/>
+        - Save to get new shapefile.
+      </div>
+      <div id="pn-extra-debug" style="font-size:11px;color:#9aa3b2;"></div>
+    </div>
+  </div>
+{% endblock %}
+
+
+{% block scripts %}
+  {{ super() }}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="{{ url_for('polygon_navigator.static', filename='polygon_navigator/script.js') }}"></script>
+{% endblock %}

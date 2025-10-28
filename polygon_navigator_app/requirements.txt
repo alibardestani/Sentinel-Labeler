@@ -1,0 +1,5 @@
+Flask>=2.2
+geopandas>=0.14
+shapely>=2.0
+fiona>=1.9
+pyproj>=3.6
