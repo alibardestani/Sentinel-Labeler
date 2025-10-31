@@ -14,42 +14,45 @@ Integrated Flask-based system for:
 ```bash
 git clone https://github.com/alibardestani/Sentinel-Labeler.git
 cd Sentinel-Labeler
+```
 
-2️⃣ Create & activate virtual environment
-
+### 2️⃣ Create & activate virtual environment
+```bash
 python3 -m venv .venv
 source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
+```
 
-3️⃣ Install dependencies
-
+### 3️⃣ Install dependencies
+```bash
 pip install --upgrade pip
 pip install -r requirements.txt
-
+```
 💡 Local dev / laptop:
 	•	You do NOT need torch.
 	•	Super-Resolution runs in mock mode.
 
 💡 GPU server:
-
+```bash
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install super-image
-
+```
 
 
 ⸻
 
-🗄 Create MySQL database
-
+### 🗄 Create MySQL database
+```bash
 CREATE DATABASE sen2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'sen2user'@'localhost' IDENTIFIED BY 'yourpass';
 GRANT ALL PRIVILEGES ON sen2.* TO 'sen2user'@'localhost';
 FLUSH PRIVILEGES;
-
+```
 
 ⸻
 
-⚙️ Create .env in project root
+### ⚙️ Create .env in project root
 
+```bash
 # Flask
 SECRET_KEY=change-this
 SQLALCHEMY_DATABASE_URI=mysql+pymysql://sen2user:yourpass@127.0.0.1:3306/sen2?charset=utf8mb4
@@ -70,34 +73,36 @@ DISABLE_TORCH=1
 # DISABLE_TORCH=0
 # CKPT_PATH_EDSR_16=/home/ubuntu/models/edsr_base/best_model_checkpoint.pt
 # CKPT_PATH_EDSR_8=/home/ubuntu/models/edsr_base_8_block/best_model_checkpoint.pt
-
+```
 
 ⸻
 
-🗃 Initialize database tables
-
+### 🗃 Initialize database tables
+```bash
 flask db upgrade
 # or just run once (app does a DB sanity check on startup):
 python app.py
-
+```
 
 ⸻
 
-▶️ Run the app
-
+### ▶️ Run the app
+```bash
 python app.py
+```
 
-Now open in browser:
-	•	🛰 Main app → http://localhost:5001/
-	•	🧩 Polygon Navigator → http://localhost:5001/polygon-navigator/
-	•	⚡ Super-Resolution → http://localhost:5001/superres/
+Once the application is running, open these URLs in your browser:
+
+* **🛰 Main Labeler App:** `http://localhost:5001/`
+* **🧩 Polygon Navigator (QA):** `http://localhost:5001/polygon-navigator/`
+* **⚡ Super-Resolution:** `http://localhost:5001/superres/`
 
 If you’re not logged in, you’ll be redirected to /login.
 
 ⸻
 
-🧠 Modes recap
-
+### 🧠 Modes recap
+```bash
 Mode	torch needed?	Behavior
 local-mock	no	Fake SR preview (dev mode)
 local	yes	Real model locally (CPU/GPU)
@@ -105,11 +110,11 @@ remote	yes	Real model on production server
 colab	yes	Notebook / Colab usage
 
 Set mode using ENV_MODE in .env.
-
+```
 ⸻
 
-📂 Folder structure
-
+### 📂 Folder structure
+```bash
 Sentinel-Labeler/
 ├── app.py                      # Flask entrypoint
 ├── config.py                   # global settings
@@ -144,12 +149,12 @@ Sentinel-Labeler/
 │       └── edsr_base_8_block/best_model_checkpoint.pt
 │
 └── README.md
-
+```
 
 ⸻
 
-✅ Commands Cheat Sheet
-
+### ✅ Commands Cheat Sheet
+```bash
 Task	Command
 Clone repo	git clone https://github.com/alibardestani/Sentinel-Labeler.git
 Enter project	cd Sentinel-Labeler
@@ -160,11 +165,11 @@ Create .env	copy the example in this README
 Run migrations	flask db upgrade or python app.py once
 Launch app	python app.py
 Open UI	http://localhost:5001/
-
+```
 
 ⸻
 
-👥 Repo
+### 👥 Repo
 
 https://github.com/alibardestani/Sentinel-Labeler
 
