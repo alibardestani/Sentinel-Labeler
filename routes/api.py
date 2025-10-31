@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from flask import Blueprint, jsonify, make_response, request, send_from_directory, current_app
 import numpy as np
-from models import db, User, AssignedTile
+from models import db, User, AssignedTile 
 from flask import session
 from services.polygons import load_polygons_dict
 from services.s2 import current_selected_scene, tiles_root

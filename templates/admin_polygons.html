@@ -1,0 +1,38 @@
+<!-- templates/admin_polygons.html -->
+{% extends "admin.html" %}
+{% block body_extra %}
+<div class="card grid">
+  <h3>Upload Polygon ZIP (Shapefile)</h3>
+  <form method="post" action="{{ url_for('admin_bp.polygons_upload') }}" enctype="multipart/form-data" class="grid" style="max-width:520px">
+    <input name="name" placeholder="Set name (optional)"/>
+    <input type="file" name="file" accept=".zip" required />
+    <button class="btn primary">Upload</button>
+  </form>
+</div>
+
+<div class="card grid">
+  <h3>Polygon Sets</h3>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Name</th><th>Features</th><th>Uploaded</th><th>Assign</th></tr></thead>
+    <tbody>
+      {% for s in sets %}
+      <tr>
+        <td>{{s.id}}</td>
+        <td>{{s.name}}</td>
+        <td>{{s.feature_count}}</td>
+        <td>{{s.created_at}}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_bp.polygons_assign_batch') }}" class="pill">
+            <input type="hidden" name="set_id" value="{{s.id}}"/>
+            <input name="user_id" placeholder="user_id" style="width:90px" required/>
+            <input name="offset" placeholder="offset" style="width:80px" value="0"/>
+            <input name="limit" placeholder="limit" style="width:80px" value="200"/>
+            <button class="btn">Assign batch</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

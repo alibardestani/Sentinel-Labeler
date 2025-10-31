@@ -61,6 +61,7 @@
         <div class="muted">Manage users & assign whole Sentinel scenes</div>
       </div>
       <div class="pill">
+        <a class="btn" href="{{ url_for('admin_bp.polygons_page') }}">Polygons</a>
         <a class="btn" href="{{ url_for('pages_bp.polygon') }}">← App</a>
         <a class="btn" href="{{ url_for('auth_bp.logout') }}">Logout</a>
       </div>
@@ -170,6 +171,7 @@
         </tbody>
       </table>
     </div>
+    {% block body_extra %}{% endblock %}
   </div>
 
   <!-- فقط یک اسکریپت سبک: از منطق و کش common.js استفاده می‌کند -->
