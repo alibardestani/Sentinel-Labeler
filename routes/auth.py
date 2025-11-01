@@ -28,6 +28,8 @@ def _default_after_login_for(u: User) -> str:
     return url_for("pages_bp.brush")
 
 
+
+
 # -------- Routes --------
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():

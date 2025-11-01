@@ -15,43 +15,94 @@
   const show = (el, display='flex') => { if (!el) return; el.hidden = false; el.style.display = display; };
   const hide = (el) => { if (!el) return; el.hidden = true; el.style.display = 'none'; };
 
-  // -------------------- One-shot fetch with in-flight + memo --------------------
-  const inflight = new Map(); // key -> Promise
-  const memo     = new Map(); // key -> { t, data }
-  const TTL_MS   = 60_000;    // 60s cache for scene list/current
+  // -------------------- One-shot fetch with memo + TTL + credentials --------------------
+  const __memo = new Map(); // key -> { t:number, p:Promise<any> }
+  const TTL_MS = 60_000;    // 60s cache for scenes endpoints
 
-  async function fetchJSONOnce(key, url, opts={}) {
+  function dropFromMemo(...keys) { keys.forEach(k => __memo.delete(k)); }
+
+  async function fetchJSONOnce(key, url, opts = {}) {
     const now = Date.now();
-    const m = memo.get(key);
-    if (m && now - m.t < TTL_MS) return m.data;
-    if (inflight.has(key)) return inflight.get(key);
+    const hit = __memo.get(key);
+    if (hit && now - hit.t < TTL_MS) return hit.p;
 
-    const p = fetch(url, { cache: 'no-store', ...opts })
-      .then(async r => {
-        let j = {};
-        try { j = await r.json(); } catch { j = {}; }
-        memo.set(key, { t: Date.now(), data: j });
-        inflight.delete(key);
-        return j;
-      })
-      .catch(e => {
-        inflight.delete(key);
-        throw e;
-      });
+    const p = fetch(url, {
+      credentials: 'same-origin',                    // keep session cookies
+      headers: { 'Accept': 'application/json', ...(opts.headers || {}) },
+      cache: 'no-store',
+      ...opts
+    })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      let raw;
+      try { raw = await res.json(); } catch { raw = {}; }
 
-    inflight.set(key, p);
+      // Normalize shapes for Scene APIs so UI code is simple everywhere.
+      if (key === 'scenes.list') {
+        const arr = Array.isArray(raw) ? raw : (raw && raw.items) || [];
+        return arr.map(s => ({
+          id: s.id,
+          name: s.name || s.id,
+          tile: s.tile,         // keep optional tags if server provides them
+          date: s.date
+        }));
+      }
+      if (key === 'scenes.current') {
+        if (raw && typeof raw === 'object' && 'scene' in raw) return raw.scene;
+        if (Array.isArray(raw)) return raw[0] || null;
+        return raw ?? null;
+      }
+      return raw;
+    })
+    .catch((e) => { __memo.delete(key); throw e; });
+
+    __memo.set(key, { t: now, p });
     return p;
   }
-
-  function dropFromMemo(key){ try { memo.delete(key); } catch {} }
 
   // -------------------- SceneStore (single source of truth) --------------------
   const SceneStore = {
     async list()    { return await fetchJSONOnce('scenes.list',    '/api/scenes/list');    },
     async current() { return await fetchJSONOnce('scenes.current', '/api/scenes/current'); },
-    invalidate()    { dropFromMemo('scenes.list'); dropFromMemo('scenes.current'); }
+    invalidate()    { dropFromMemo('scenes.list', 'scenes.current'); }
   };
   window.SceneStore = SceneStore;
+
+  // -------------------- Admin helper: populate scene <select> --------------------
+  async function populateSceneSelect(selectEl, { withCurrent = false } = {}) {
+    try {
+      const scenes = await SceneStore.list(); // -> [{id,name,tile?,date?}]
+      selectEl.innerHTML = '';
+
+      if (!scenes.length) {
+        selectEl.innerHTML = '<option value="">— no scenes —</option>';
+        return;
+      }
+
+      for (const s of scenes) {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        const tag = [s.tile || '', s.date || ''].filter(Boolean).join(' • ');
+        opt.textContent = tag ? `${s.name} — ${tag}` : (s.name || s.id);
+        opt.dataset.name = s.name || s.id;
+        selectEl.appendChild(opt);
+      }
+
+      if (withCurrent) {
+        const cur = await SceneStore.current();            // tolerant of old/new shapes
+        const curId = cur && (cur.id || cur.scene_id);
+        if (curId) {
+          const found = [...selectEl.options].find(o => o.value === String(curId));
+          if (found) found.selected = true;
+        }
+      }
+    } catch (e) {
+      console.error('[common] populateSceneSelect error:', e);
+      selectEl.innerHTML = '<option value="">— error loading scenes —</option>';
+    }
+  }
+  // expose for admin.html
+  window.populateSceneSelect = populateSceneSelect;
 
   // -------------------- Progress modal (shared) --------------------
   const MOD = {
@@ -86,7 +137,11 @@
       const tick = async () => {
         if (ctrl.signal.aborted) return;
         try {
-          const r = await fetch('/api/progress?ts='+Date.now(), { cache:'no-store', signal: ctrl.signal });
+          const r = await fetch('/api/progress?ts='+Date.now(), {
+            cache:'no-store',
+            signal: ctrl.signal,
+            credentials: 'same-origin'
+          });
           const j = await r.json().catch(()=>({}));
           const p = Number(j.percent || 0);
           this.setPct(p);
@@ -131,6 +186,7 @@
     MOD.open('Uploading… (0%)');
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload_safe_zip', true);
+    xhr.withCredentials = true; // include cookies for session-auth endpoints
 
     xhr.upload.onprogress = e => {
       if (!e.lengthComputable) { MOD.setPct(10); MOD.setTitle('Uploading…'); return; }
@@ -153,7 +209,6 @@
       }
     };
 
-    // درست کردن FormData
     const fd = new FormData();
     fd.append('file', file);
     xhr.send(fd);
@@ -176,7 +231,7 @@
       if (!f) return alert('فایل مدل را انتخاب کنید');
       const fd = new FormData(); fd.append('file', f);
       try{
-        const r = await fetch('/api/model_upload', { method:'POST', body:fd });
+        const r = await fetch('/api/model_upload', { method:'POST', body:fd, credentials:'same-origin' });
         const j = await r.json().catch(()=>({}));
         if (!r.ok) throw new Error(j.error || 'upload failed');
         alert('مدل بارگذاری شد');
@@ -186,7 +241,7 @@
     runBtn?.addEventListener('click', async () => {
       MOD.open('Running model… (0%)'); MOD.startPoll();
       try{
-        const r = await fetch('/api/run_model', { method:'POST' });
+        const r = await fetch('/api/run_model', { method:'POST', credentials:'same-origin' });
         if (!r.ok) throw new Error('run failed');
         setTimeout(()=> location.href = '/mask', 400);
       }catch(e){ MOD.close(); alert(e.message||e); }
@@ -219,9 +274,7 @@
 
     const fill = async () => {
       try{
-        const [j, curObj] = await Promise.all([ SceneStore.list(), SceneStore.current() ]);
-        const cur = curObj?.scene?.id || null;
-        const items = j?.items || [];
+        const [items, cur] = await Promise.all([ SceneStore.list(), SceneStore.current() ]);
         sel.innerHTML = '';
         if (!items.length){
           sel.innerHTML = '<option value="">— no scenes found —</option>';
@@ -231,10 +284,11 @@
           const op = document.createElement('option');
           op.value = it.id;
           const tag = [it.tile||'', it.date||''].filter(Boolean).join(' • ');
-          op.textContent = tag ? `${it.name} — ${tag}` : it.name;
+          op.textContent = tag ? `${it.name} — ${tag}` : (it.name || it.id);
           sel.appendChild(op);
         }
-        if (cur) sel.value = cur;
+        const curId = cur && (cur.id || cur.scene_id);
+        if (curId) sel.value = String(curId);
         btn.disabled = false;
       }catch(e){ warn('fill scenes failed', e); btn.disabled = true; }
     };
@@ -249,17 +303,18 @@
       try{
         const r = await fetch('/api/scenes/select', {
           method:'POST',
+          credentials:'same-origin',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ scene_id:id })
         });
         const j = await r.json().catch(()=>({}));
-        if (!r.ok /*|| !j.ok*/){ throw new Error(j.error || `HTTP ${r.status}`); }
+        if (!r.ok){ throw new Error(j.error || `HTTP ${r.status}`); }
 
         SceneStore.invalidate(); // refresh list/current
 
         // Hot-swap بدون ری‌لود صفحه:
         try{
-          const b = await fetch('/api/s2_bounds_wgs84', { cache:'no-store' }).then(r=>r.json());
+          const b = await fetch('/api/s2_bounds_wgs84', { cache:'no-store', credentials:'same-origin' }).then(r=>r.json());
           const A = window.BrushApp;
           const url = '/api/output/rgb_quicklook.png?t=' + Date.now();
           if (A?.map){
@@ -330,7 +385,12 @@
           const v = parseFloat($('#ndviThreshold')?.value || '0.2');
           body.ndvi_threshold = Number.isFinite(v) ? v : 0.2;
         }
-        const r = await fetch('/api/prelabel', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await fetch('/api/prelabel', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          credentials:'same-origin',
+          body: JSON.stringify(body)
+        });
         if (!r.ok) throw new Error('prelabel failed');
         setTimeout(()=> location.href='/mask', 400);
       }catch(e){ MOD.close(); alert(e.message||e); }

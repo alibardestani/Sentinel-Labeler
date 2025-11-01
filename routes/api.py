@@ -23,6 +23,28 @@ from services.s2 import (
 )
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
+def _is_admin() -> bool:
+    uid = session.get("user_id")
+    if not uid:
+        return False
+    # fast path: db.session.get is SQLA 2.x friendly and efficient
+    u = db.session.get(User, uid)
+    return bool(getattr(u, "is_admin", False))
+
+def user_can_access_scene(scene_id: str) -> bool:
+    if not scene_id:
+        return False
+    if _is_admin():
+        return True
+    uid = session.get("user_id")
+    if not uid:
+        return False
+    scene_id = (scene_id or "").strip()
+    return db.session.query(AssignedTile.id)\
+        .filter(AssignedTile.user_id == uid,
+                func.trim(AssignedTile.scene_id) == scene_id)\
+        .first() is not None
+
 @api_bp.get("/output/<path:filename>")
 def output_files(filename: str):
     return send_from_directory(settings.OUTPUT_DIR, filename, conditional=True)
@@ -150,27 +172,31 @@ def api_get_mask():
 def api_progress():
     return jsonify(get_progress())
 
+
 @api_bp.get("/scenes/list")
+@login_required
 def api_scenes_list():
-    if session.get("is_admin"):
-        items = [s.__dict__ for s in list_s2_scenes()]
-        return jsonify({"ok": True, "items": items})
+    if _is_admin():
+        items = [{"id": s.id, "name": getattr(s, "name", s.id)} for s in list_s2_scenes()]
+        return jsonify(items)
 
     uid = session.get("user_id")
-    q = db.session.query(AssignedTile.scene_id, AssignedTile.scene_name).filter_by(user_id=uid).all()
-    assigned_ids = {row.scene_id for row in q}
-    if not assigned_ids:
-        return jsonify({"ok": True, "items": []})
+    rows = (db.session.query(AssignedTile.scene_id, AssignedTile.scene_name)
+            .filter(AssignedTile.user_id == uid)
+            .all())
+    assigned = [( (sid or "").strip(), (nm or "").strip() ) for sid, nm in rows]
+    if not assigned:
+        return jsonify([])
 
     all_items = {s.id: s for s in list_s2_scenes()}
-    items = []
-    for sid in assigned_ids:
+    out = []
+    for sid, nm in assigned:
         meta = all_items.get(sid)
         if meta:
-            items.append(meta.__dict__)
+            out.append({"id": meta.id, "name": getattr(meta, "name", sid)})
         else:
-            items.append({"id": sid, "name": sid})
-    return jsonify({"ok": True, "items": items})
+            out.append({"id": sid, "name": nm or sid})
+    return jsonify(out)
 
 @api_bp.post("/scenes/select")
 def api_scenes_select():
@@ -199,7 +225,7 @@ def api_scenes_current():
 def api_my_tiles():
     uid = session.get("user_id")
     if not uid:
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
+        return jsonify([]), 200
 
     rows = (
         AssignedTile.query
@@ -253,7 +279,7 @@ def user_can_access_scene(scene_id: str) -> bool:
     if not scene_id:
         return False
     # ادمین دسترسی کامل دارد
-    if session.get("is_admin"):
+    if _is_admin():
         return True
     uid = session.get("user_id")
     if not uid:

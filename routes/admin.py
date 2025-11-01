@@ -9,10 +9,11 @@ from flask import (
     session, request, abort, flash, current_app
 )
 from werkzeug.security import generate_password_hash
-from models_polygons import PolygonSet, Polygon, PolygonAssignment   
+from models_polygons import PolygonSet, Polygon
 
 
 from models import db, User, AssignedTile
+from models import PolygonAssignment
 from routes.guards import admin_required
 
 # اگر templates در روت پروژه است، نیازی به template_folder نیست
