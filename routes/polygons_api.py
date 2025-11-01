@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Tuple
 from flask import Blueprint, jsonify, request, session
 from werkzeug.utils import secure_filename
 
-from models_polygons import Polygon, PolygonSet, PolygonAssignment
-from models import db
+from models_polygons import Polygon, PolygonSet
+from models import db, PolygonAssignment
 from routes.guards import login_required, admin_required  # make sure you have these
 
 # Geo stack

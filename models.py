@@ -8,6 +8,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
+
+
 db = SQLAlchemy()
 
 class User(db.Model):
@@ -59,3 +61,22 @@ class AssignedTile(db.Model):
         return f"<AssignedTile id={self.id} user_id={self.user_id} scene_id={self.scene_id}>"
     
  
+ 
+class PolygonAssignment(db.Model):
+    __tablename__ = "polygon_assignment"
+    id = db.Column(db.Integer, primary_key=True)
+    polygon_id = db.Column(db.Integer, db.ForeignKey("polygon.id"), nullable=False, index=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("user.id"),    nullable=False, index=True)
+
+    status         = db.Column(db.Enum("queued","in_progress","edited","submitted","approved","rejected", name="polygon_assignment_status"), nullable=False, default="queued")
+    last_editor_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    last_edit_at   = db.Column(db.DateTime)
+    created_at     = db.Column(db.DateTime, nullable=False, server_default=db.func.current_timestamp())
+
+    # NEW FIELDS
+    label   = db.Column(db.String(255))
+    quality = db.Column(db.String(32))
+
+    user = db.relationship("User", foreign_keys=[user_id])
+    last_editor = db.relationship("User", foreign_keys=[last_editor_id])
+    polygon = db.relationship("Polygon", back_populates="assignments")
