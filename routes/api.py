@@ -1,4 +1,4 @@
-# routes/api.py  (یا هر فایلی که blueprint را تعریف کرده)
+# routes/api.py  
 from __future__ import annotations
 import json
 from pathlib import Path
@@ -39,11 +39,12 @@ def user_can_access_scene(scene_id: str) -> bool:
     uid = session.get("user_id")
     if not uid:
         return False
-    scene_id = (scene_id or "").strip()
-    return db.session.query(AssignedTile.id)\
-        .filter(AssignedTile.user_id == uid,
-                func.trim(AssignedTile.scene_id) == scene_id)\
-        .first() is not None
+    return (
+        db.session.query(AssignedTile.id)
+        .filter_by(user_id=uid, scene_id=scene_id)
+        .first()
+        is not None
+    )
 
 @api_bp.get("/output/<path:filename>")
 def output_files(filename: str):
@@ -75,6 +76,7 @@ def align_offset():
 @api_bp.get("/s2_bounds_wgs84")
 def api_s2_bounds_wgs84():
     b = s2_bounds_wgs84()
+    current_app.logger.warning("S2_BOUNDS: %r", b)
     if not b:
         return ("", 204)
     return jsonify(b)
@@ -174,7 +176,7 @@ def api_progress():
 
 
 @api_bp.get("/scenes/list")
-@login_required
+# @login_required
 def api_scenes_list():
     if _is_admin():
         items = [{"id": s.id, "name": getattr(s, "name", s.id)} for s in list_s2_scenes()]
@@ -215,6 +217,9 @@ def api_scenes_select():
 @api_bp.get("/scenes/current")
 def api_scenes_current():
     it = current_selected_scene()
+    current_app.logger.warning("SCENES_CURRENT: %r", it.__dict__ if it else None)
+    if not it:
+        return jsonify({"ok": False, "error": "no scene selected yet"}), 404
     return jsonify({"ok": True, "scene": (it.__dict__ if it else None)})
 
 
@@ -225,7 +230,7 @@ def api_scenes_current():
 def api_my_tiles():
     uid = session.get("user_id")
     if not uid:
-        return jsonify([]), 200
+        return jsonify({"ok": False, "items": []}), 200
 
     rows = (
         AssignedTile.query
@@ -274,14 +279,3 @@ def api_grid_list():
 
     return jsonify({"ok": True, "rows": 3, "cols": 3, "items": items, "scene_id": scene_id})
 
-
-def user_can_access_scene(scene_id: str) -> bool:
-    if not scene_id:
-        return False
-    # ادمین دسترسی کامل دارد
-    if _is_admin():
-        return True
-    uid = session.get("user_id")
-    if not uid:
-        return False
-    return db.session.query(AssignedTile.id).filter_by(user_id=uid, scene_id=scene_id).first() is not None

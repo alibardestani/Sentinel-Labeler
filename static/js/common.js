@@ -315,6 +315,11 @@
         // Hot-swap بدون ری‌لود صفحه:
         try{
           const b = await fetch('/api/s2_bounds_wgs84', { cache:'no-store', credentials:'same-origin' }).then(r=>r.json());
+          console.log('[brush] /api/s2_bounds_wgs84 status =', b.status);
+          if (b.status !== 200) {
+            console.error('[brush] bounds failed, cannot init');
+            return;
+          }         
           const A = window.BrushApp;
           const url = '/api/output/rgb_quicklook.png?t=' + Date.now();
           if (A?.map){

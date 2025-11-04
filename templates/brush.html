@@ -179,7 +179,6 @@
   (function () {
     const $ = (id) => document.getElementById(id);
 
-    // --- Polygon panel (custom label toggle) ---
     function wirePolygonPanel() {
       const sel = $('polyLabelSelect');
       const wrap = $('customLabelWrap');
@@ -188,7 +187,6 @@
       toggle();
     }
 
-    // --- HUD + Grid sync ---
     function wireGridControls() {
       const A = window.BrushApp;
       const prev = $('tilePrev'), next = $('tileNext'), go = $('tileGo'), sel = $('tileSelect'), chk = $('autoFollowChk');
@@ -211,11 +209,11 @@
       if (typeof A.grid?.autoFollow === 'boolean') chk.checked = !!A.grid.autoFollow;
     }
 
-    // --- Grid dropdown builder ---
     async function populateGridDropdown(sceneId) {
       const sel = $('tileSelect'); if (!sel) return;
       sel.innerHTML = '';
-      const list = await fetch(`/api/grid/list?scene_id=${encodeURIComponent(sceneId)}&t=${Date.now()}`,{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
+      const list = await fetch(`/api/grid/list?scene_id=${encodeURIComponent(sceneId)}&t=${Date.now()}`, { cache: 'no-store' })
+        .then(r => r.json()).catch(() => null);
       if (!list || !list.ok) return;
       list.items.sort((a,b)=>(a.r*100+a.c)-(b.r*100+b.c));
       list.items.forEach(it=>{
@@ -228,57 +226,120 @@
       [$('hudTileRC'),$('hudTileRC2')].forEach(h=>h&&(h.textContent='r1×c1'));
     }
 
-    // --- Scene + tiles bootstrap ---
     async function initBrush() {
-      // check auth & access
-      const res=await fetch('/api/my_tiles',{cache:'no-store'});
-      if(res.status===401){location.href='/login?next='+encodeURIComponent(location.pathname);return;}
-      const j=await res.json().catch(()=>null);
-      if(!j?.ok||!Array.isArray(j.items)||j.items.length===0){location.href='/no-access';return;}
+      // 1) auth
+      const res = await fetch('/api/my_tiles', { cache: 'no-store' });
+      const myTiles = await res.json().catch(() => null);
+      if (!myTiles) {
+        alert('auth failed');
+        return;
+      }
 
-      // wait until Leaflet + BrushApp are ready
-      await new Promise((res,rej)=>{
-        const t0=Date.now();(function tick(){if(window.L&&window.BrushApp?.init)return res(true);if(Date.now()-t0>7000)return rej(new Error('timeout'));setTimeout(tick,60);})(); 
+      // 2) current scene (your API returns the scene directly)
+      const scRaw = await SceneStore.current().catch(() => null);
+      console.log('[brush] /scenes/current payload =', scRaw);
+      const sceneObj = scRaw
+        ? (scRaw.scene ? scRaw.scene : scRaw)
+        : null;
+      if (!sceneObj || !sceneObj.id) {
+        alert('No scene selected');
+        return;
+      }
+      const sid = sceneObj.id;
+      console.log('[brush] current scene id =', sid);
+
+      // 3) ensure tiles exist
+      const probeTiles = `/api/grid/list?scene_id=${encodeURIComponent(sid)}&t=${Date.now()}`;
+      let r = await fetch(probeTiles, { cache: 'no-store' });
+      if (r.status === 404) {
+        const sel = await fetch('/api/scenes/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scene_id: sid })
+        });
+        if (!sel.ok) {
+          alert('scenes/select failed while building tiles: ' + sel.status);
+          return;
+        }
+        r = await fetch(probeTiles, { cache: 'no-store' });
+      }
+      if (r.status !== 200) {
+        alert('Tiles not ready');
+        return;
+      }
+
+      // 4) ensure bounds exist (THIS is what core.js wants)
+      async function ensureBounds() {
+        let b = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
+        if (b.status === 200) return true;
+
+        // bounds missing -> force re-select scene to rebuild TIF
+        const sel = await fetch('/api/scenes/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scene_id: sid })
+        });
+        if (!sel.ok) {
+          alert('scenes/select failed while building bounds: ' + sel.status);
+          return false;
+        }
+        b = await fetch('/api/s2_bounds_wgs84', { cache: 'no-store' });
+        return b.status === 200;
+      }
+
+      const boundsOk = await ensureBounds();
+      if (!boundsOk) {
+        alert('Cannot get S2 bounds for scene');
+        return;
+      }
+
+      // 5) wait for Leaflet + BrushApp
+      await new Promise((res, rej) => {
+        const t0 = Date.now();
+        (function tick() {
+          if (window.L && window.BrushApp?.init) return res(true);
+          if (Date.now() - t0 > 7000) return rej(new Error('timeout'));
+          setTimeout(tick, 60);
+        })();
       });
 
-      // init brush core
+      // 6) init BrushApp (now /api/s2_bounds_wgs84 is 200)
       await window.BrushApp.init({
-        mapId:'map',maskId:'maskCanvas',cursorId:'cursorCanvas',
-        overlayBoundsURL:'/api/s2_bounds_wgs84',
-        gridRows:3,gridCols:3,autoPickVisibleTile:false,autoFollowTiles:false
+        mapId: 'map',
+        maskId: 'maskCanvas',
+        cursorId: 'cursorCanvas',
+        overlayBoundsURL: '/api/s2_bounds_wgs84',
+        gridRows: 3,
+        gridCols: 3,
+        autoPickVisibleTile: false,
+        autoFollowTiles: false,
+        sceneId: sid, 
       });
+      console.log('[brush] BrushApp.init done, sceneBounds =', window.BrushApp.sceneBounds);
 
-      // override tile loading overlay
-      window.BrushApp.setTileLoading=(on)=>{
-        const el=$('tileLoader'); if(el) el.style.display=on?'grid':'none';
+      window.BrushApp.setTileLoading = (on) => {
+        const el = document.getElementById('tileLoader');
+        if (el) el.style.display = on ? 'grid' : 'none';
       };
 
-      // fetch current scene (یک‌بار)
-      const sc=await SceneStore.current().catch(()=>null);
-      if(!sc||!sc.ok||!sc.scene){alert('No scene selected');return;}
-      const sid=sc.scene.id;
-
-      // ensure grid ready
-      const probe=`/api/grid/list?scene_id=${encodeURIComponent(sid)}&t=${Date.now()}`;
-      let r=await fetch(probe,{cache:'no-store'});
-      if(r.status===404){
-        const sel=await fetch('/api/scenes/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene_id:sid})});
-        if(!sel.ok)throw new Error('scenes/select http '+sel.status);
-        r=await fetch(probe,{cache:'no-store'});
-      }
-      if(r.status!==200){alert('Tiles not ready');return;}
-
       await populateGridDropdown(sid);
-      window.BrushApp.setActiveTile(0,0,{fit:true});
-      if(window.BrushIO?.reloadPolygonsForScene){try{await window.BrushIO.reloadPolygonsForScene();}catch(e){console.error('polygons:load:error',e);}}
+      window.BrushApp.setActiveTile(0, 0, { fit: true });
+      if (window.BrushIO?.reloadPolygonsForScene) {
+        try { await window.BrushIO.reloadPolygonsForScene(); }
+        catch (e) { console.error('polygons:load:error', e); }
+      }
+
+      wirePolygonPanel();
+      wireGridControls();
     }
 
-    document.addEventListener('DOMContentLoaded',async()=>{
-      try{
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
         await initBrush();
-        wirePolygonPanel();
-        wireGridControls();
-      }catch(e){console.error(e);alert('Initialization failed: '+e.message);}
+      } catch (e) {
+        console.error(e);
+        alert('Initialization failed: ' + e.message);
+      }
     });
   })();
 </script>

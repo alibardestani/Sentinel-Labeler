@@ -301,7 +301,7 @@ console.log("[BRUSH:core] loaded");
     try {
       if (window.SceneStore?.current) {
         const j = await window.SceneStore.current();
-        App.sceneId = j?.scene?.id || null;
+        App.sceneId = j?.scene?.id || j?.id || null;
         return App.sceneId;
       }
     } catch (e) { /* fallthrough */ }
