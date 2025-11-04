@@ -18,7 +18,7 @@
 **/*.dat
 **/*.hdr
 **/*.prm
-
+*.csv
 # GDAL/ESRI aux + overviews
 **/*.aux
 **/*.aux.xml

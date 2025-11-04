@@ -5,14 +5,19 @@ import os
 from flask import Flask, session
 from flask_migrate import Migrate
 from dotenv import load_dotenv
+from sqlalchemy.orm import configure_mappers
 
 from models import db, User
 from config import settings
+
 
 def create_app() -> Flask:
     load_dotenv()
     app = Flask(__name__, static_folder="static", template_folder="templates")
 
+    # --------------------
+    # Core configuration
+    # --------------------
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "please-change-me")
     db_uri = os.getenv(
         "SQLALCHEMY_DATABASE_URI",
@@ -26,24 +31,39 @@ def create_app() -> Flask:
         SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 1800},
     )
 
+    # --------------------
+    # DB + migrations
+    # --------------------
     db.init_app(app)
-    Migrate(app, db)  # registers `flask db` commands
+    Migrate(app, db)
 
-    # --- Core blueprints (must exist) ---
+    # --------------------
+    # Register models FIRST
+    # (ensures relationships by string resolve cleanly)
+    # --------------------
+    import models            # User, AssignedTile, PolygonAssignment
+    import models_polygons   # PolygonSet, Polygon
+    configure_mappers()
+
+    # --------------------
+    # Blueprints
+    # --------------------
+    # Import AFTER models are registered to avoid circular import timing issues
     from routes.api import api_bp
     from routes.masks_api import bp_masks
     from routes.polygons_api import polygons_api
     from routes.auth import auth_bp
     from routes.pages import pages_bp
     from routes.admin import admin_bp
+
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(bp_masks, url_prefix="/api/masks")
-    app.register_blueprint(polygons_api)  # has own prefix inside file
+    app.register_blueprint(polygons_api)  # has its own url_prefix inside file
     app.register_blueprint(auth_bp)
     app.register_blueprint(pages_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
-    # --- Optional blueprints (don’t crash app if missing) ---
+    # Optional blueprints (don’t crash if missing)
     try:
         from project2 import project2_bp
         app.register_blueprint(project2_bp)
@@ -52,6 +72,8 @@ def create_app() -> Flask:
 
     try:
         from polygon_navigator_app import polygon_navigator_bp
+        # polygon_navigator_bp already has url_prefix="/polygon-navigator" internally;
+        # passing it again is harmless but we keep it explicit for clarity:
         app.register_blueprint(polygon_navigator_bp, url_prefix="/polygon-navigator")
     except Exception as e:
         print("[polygon_navigator] optional import skipped:", e)
@@ -62,16 +84,21 @@ def create_app() -> Flask:
     except Exception as e:
         print("[superres_app] optional import skipped:", e)
 
+    # --------------------
+    # Template context
+    # --------------------
     @app.context_processor
     def inject_current_user():
         uid = session.get("user_id")
         u = User.query.get(uid) if uid else None
         return {
             "current_user": u,
-            "is_admin": bool(getattr(u, "is_admin", False)) if u else False
+            "is_admin": bool(getattr(u, "is_admin", False)) if u else False,
         }
 
+    # --------------------
     # Optional bootstrap
+    # --------------------
     try:
         from services.polygons_bootstrap import ensure_geojson_from_shapefile
     except Exception as e:
