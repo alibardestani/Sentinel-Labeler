@@ -21,19 +21,31 @@
 
   function dropFromMemo(...keys) { keys.forEach(k => __memo.delete(k)); }
 
+  /**
+   * Generic JSON fetch with:
+   *   - memoization (TTL)
+   *   - credentials
+   *   - normalization for scenes.list / scenes.current
+   */
   async function fetchJSONOnce(key, url, opts = {}) {
     const now = Date.now();
     const hit = __memo.get(key);
     if (hit && now - hit.t < TTL_MS) return hit.p;
 
     const p = fetch(url, {
-      credentials: 'same-origin',                    // keep session cookies
+      credentials: 'same-origin',
       headers: { 'Accept': 'application/json', ...(opts.headers || {}) },
       cache: 'no-store',
       ...opts
     })
     .then(async (res) => {
+      // ✅ allow 404 for scenes.current = "no scene selected yet"
+      if (key === 'scenes.current' && res.status === 404) {
+        return null;
+      }
+
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+
       let raw;
       try { raw = await res.json(); } catch { raw = {}; }
 
@@ -41,17 +53,19 @@
       if (key === 'scenes.list') {
         const arr = Array.isArray(raw) ? raw : (raw && raw.items) || [];
         return arr.map(s => ({
-          id: s.id,
+          id:   s.id,
           name: s.name || s.id,
-          tile: s.tile,         // keep optional tags if server provides them
+          tile: s.tile,
           date: s.date
         }));
       }
+
       if (key === 'scenes.current') {
         if (raw && typeof raw === 'object' && 'scene' in raw) return raw.scene;
         if (Array.isArray(raw)) return raw[0] || null;
         return raw ?? null;
       }
+
       return raw;
     })
     .catch((e) => { __memo.delete(key); throw e; });
@@ -89,7 +103,7 @@
       }
 
       if (withCurrent) {
-        const cur = await SceneStore.current();            // tolerant of old/new shapes
+        const cur = await SceneStore.current(); // tolerant of old/new shapes
         const curId = cur && (cur.id || cur.scene_id);
         if (curId) {
           const found = [...selectEl.options].find(o => o.value === String(curId));
@@ -274,12 +288,18 @@
 
     const fill = async () => {
       try{
-        const [items, cur] = await Promise.all([ SceneStore.list(), SceneStore.current() ]);
+        const [items, cur] = await Promise.all([
+          SceneStore.list(),
+          SceneStore.current()
+        ]);
+
         sel.innerHTML = '';
         if (!items.length){
           sel.innerHTML = '<option value="">— no scenes found —</option>';
-          btn.disabled = true; return;
+          btn.disabled = true;
+          return;
         }
+
         for (const it of items){
           const op = document.createElement('option');
           op.value = it.id;
@@ -287,17 +307,22 @@
           op.textContent = tag ? `${it.name} — ${tag}` : (it.name || it.id);
           sel.appendChild(op);
         }
+
         const curId = cur && (cur.id || cur.scene_id);
         if (curId) sel.value = String(curId);
         btn.disabled = false;
-      }catch(e){ warn('fill scenes failed', e); btn.disabled = true; }
+      }catch(e){
+        warn('fill scenes failed', e);
+        btn.disabled = true;
+      }
     };
 
     btn.addEventListener('click', async () => {
       const id = sel.value;
       if (!id) return;
       btn.disabled = true;
-      const prev = btn.textContent; btn.textContent = 'Loading…';
+      const prev = btn.textContent;
+      btn.textContent = 'Loading…';
 
       MOD.open('Loading scene… (0%)'); MOD.startPoll();
       try{
@@ -314,14 +339,37 @@
 
         // Hot-swap بدون ری‌لود صفحه:
         try{
-          const b = await fetch('/api/s2_bounds_wgs84', { cache:'no-store', credentials:'same-origin' }).then(r=>r.json());
-          console.log('[brush] /api/s2_bounds_wgs84 status =', b.status);
-          if (b.status !== 200) {
-            console.error('[brush] bounds failed, cannot init');
+          const resp = await fetch('/api/s2_bounds_wgs84', {
+            cache: 'no-store',
+            credentials: 'same-origin'
+          });
+
+          // 204 = no bounds / no backdrop yet
+          if (resp.status === 204) {
+            console.error('[brush] /api/s2_bounds_wgs84 returned 204 (no bounds)');
+            MOD.close();
             return;
-          }         
+          }
+
+          if (!resp.ok) {
+            console.error('[brush] /api/s2_bounds_wgs84 http error =', resp.status);
+            MOD.close();
+            return;
+          }
+
+          const b = await resp.json();
+          console.log('[brush] /api/s2_bounds_wgs84 bounds =', b);
+
+          // sanity check
+          if (!b || typeof b.lat_min !== 'number' || typeof b.lon_min !== 'number') {
+            console.error('[brush] bounds invalid, cannot init', b);
+            MOD.close();
+            return;
+          }
+
           const A = window.BrushApp;
           const url = '/api/output/rgb_quicklook.png?t=' + Date.now();
+
           if (A?.map){
             if (A.grid?.overlay){
               A.grid.overlay.setUrl(url);
@@ -330,8 +378,13 @@
               A.overlay.setUrl(url);
               A.overlay.setBounds([[b.lat_min,b.lon_min],[b.lat_max,b.lon_max]]);
             } else {
-              A.overlay = L.imageOverlay(url, [[b.lat_min,b.lon_min],[b.lat_max,b.lon_max]], { opacity:0.6 }).addTo(A.map);
+              A.overlay = L.imageOverlay(
+                url,
+                [[b.lat_min,b.lon_min],[b.lat_max,b.lon_max]],
+                { opacity:0.6 }
+              ).addTo(A.map);
             }
+
             try { A.map.fitBounds([[b.lat_min,b.lon_min],[b.lat_max,b.lon_max]]); } catch {}
             if (A.rebuildClipPath) A.rebuildClipPath();
             if (window.BrushIO?.reloadPolygonsForScene) await window.BrushIO.reloadPolygonsForScene();
@@ -340,7 +393,8 @@
             MOD.close();
             location.reload();
           }
-        }catch{
+        }catch(e){
+          console.error('[brush] error during bounds/overlay update', e);
           MOD.close();
           location.reload();
         }
@@ -373,7 +427,10 @@
 
     const open = () => { if (modal) show(modal); };
     const close= () => { if (modal) hide(modal);  };
-    const toggle = () => { if (threshWrap && methodSel) threshWrap.style.display = (methodSel.value==='ndvi_thresh')?'flex':'none'; };
+    const toggle = () => {
+      if (threshWrap && methodSel)
+        threshWrap.style.display = (methodSel.value==='ndvi_thresh') ? 'flex' : 'none';
+    };
 
     openBtn?.addEventListener('click', open);
     closeBtn?.addEventListener('click', close);
@@ -419,3 +476,4 @@
   // ترک صفحه: polling را متوقف و مودال را ببند
   window.addEventListener('beforeunload', () => MOD.close());
 })();
+
