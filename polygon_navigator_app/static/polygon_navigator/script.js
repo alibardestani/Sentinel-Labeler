@@ -252,17 +252,17 @@ async function loadAssignedFromServer() {
   try { map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] }); } catch (_) { }
 
   if (layerList.length > 0) {
-  
+
       // Show initial progress for this user
       const { labeled, total, remaining } = computeProgress();
       saveLink.innerHTML = `
         <b>${labeled}</b> labeled / <b>${total}</b> total
         — <b>${remaining}</b> remaining
       `;
-  
+
       enableNavButtons(true);
       goToIndex(0);
-  
+
   } else {
       enableNavButtons(false);
        currentIndex = -1;
@@ -283,3 +283,7 @@ async function loadAssignedFromServer() {
     updatePosition();
   }
 })();
+
+document.getElementById("downloadBtn").addEventListener("click", () => {
+  window.location.href = "/polygon-navigator/download-csv";
+});
