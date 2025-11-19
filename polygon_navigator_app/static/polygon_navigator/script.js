@@ -22,9 +22,9 @@ let layerList = [];       // Flat list of individual polygon layers
 let currentIndex = -1;    // Currently selected polygon index
 
 // UI elements
-const prevBtn  = document.getElementById("prevBtn");
-const nextBtn  = document.getElementById("nextBtn");
-const saveBtn  = document.getElementById("saveBtn");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+const saveBtn = document.getElementById("saveBtn");
 const position = document.getElementById("position");
 const saveLink = document.getElementById("saveLink");
 
@@ -34,7 +34,7 @@ const saveLink = document.getElementById("saveLink");
 function qualityColor(q) {
   if (q === "excellent") return "#17a34a";  // green
   if (q === "acceptable") return "#f59e0b"; // amber
-  if (q === "bad")       return "#ef4444";  // red
+  if (q === "bad") return "#ef4444";  // red
   return "#6b7280";                          // gray / null
 }
 
@@ -152,6 +152,19 @@ function goToIndex(idx) {
   updatePosition();
 }
 
+function computeProgress() {
+  let labeled = 0;
+  let total = layerList.length;
+
+  layerList.forEach(layer => {
+    const q = layer?.feature?.properties?.quality ?? null;
+    if (q) labeled += 1;
+  });
+
+  return { labeled, total, remaining: total - labeled };
+}
+
+
 // ---------------------------
 // Buttons
 // ---------------------------
@@ -183,7 +196,13 @@ saveBtn.addEventListener("click", async () => {
 
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.status === "ok") {
-      saveLink.textContent = `Saved ${data.updated} feature(s) to database.`;
+      const { labeled, total, remaining } = computeProgress();
+      saveLink.innerHTML = `
+        Saved ${data.updated} feature(s).<br>
+        <b>${labeled}</b> labeled / <b>${total}</b> total
+        — <b>${remaining}</b> remaining
+      `;
+
     } else {
       saveLink.textContent = `Save failed: ${data.error || res.statusText || "Unknown error"}`;
     }
@@ -230,16 +249,27 @@ async function loadAssignedFromServer() {
   }).addTo(map);
 
   // zoom to extent
-  try { map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] }); } catch (_) {}
+  try { map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] }); } catch (_) { }
 
   if (layerList.length > 0) {
-    enableNavButtons(true);
-    goToIndex(0);
+  
+      // Show initial progress for this user
+      const { labeled, total, remaining } = computeProgress();
+      saveLink.innerHTML = `
+        <b>${labeled}</b> labeled / <b>${total}</b> total
+        — <b>${remaining}</b> remaining
+      `;
+  
+      enableNavButtons(true);
+      goToIndex(0);
+  
   } else {
-    enableNavButtons(false);
-    currentIndex = -1;
-    updatePosition();
+      enableNavButtons(false);
+       currentIndex = -1;
+      updatePosition();
+      saveLink.textContent = "No polygons assigned.";
   }
+
 }
 
 // Initial load
