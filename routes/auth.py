@@ -18,12 +18,12 @@ def _default_after_login_for(u: User) -> str:
       - کاربر عادی بدون تخصیص: no_access
       - کاربر عادی با تخصیص: Brush
     """
-    if u.is_admin:
-        return url_for("pages_bp.brush")
+    # if u.is_admin:
+    #     return url_for("pages_bp.brush")
 
-    has_any = AssignedTile.query.filter_by(user_id=u.id).first()
-    if not has_any:
-        return url_for("pages_bp.no_access")
+    # has_any = AssignedTile.query.filter_by(user_id=u.id).first()
+    # if not has_any:
+    #     return url_for("pages_bp.no_access")
 
     return url_for("pages_bp.brush")
 

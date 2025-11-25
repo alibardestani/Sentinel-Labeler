@@ -7,7 +7,8 @@ from flask_migrate import Migrate
 from dotenv import load_dotenv
 from sqlalchemy.orm import configure_mappers
 
-from models import db, User
+from models import db, User, AssignedTile, PolygonAssignment
+
 from config import settings
 
 
@@ -15,18 +16,32 @@ def create_app() -> Flask:
     load_dotenv()
     app = Flask(__name__, static_folder="static", template_folder="templates")
 
+    # ------------------------------
+# LABEL COUNTER (GLOBAL STATE)
+# ------------------------------
+    # app.label_count = 0
+
+    # def increment_label_count():
+    #     app.label_count += 1
+    #     return app.label_count
+
+
     # --------------------
     # Core configuration
     # --------------------
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "please-change-me")
-    db_uri = os.getenv(
-        "SQLALCHEMY_DATABASE_URI",
-        "mysql+pymysql://root@localhost:3306/sen2?charset=utf8mb4",
-    )
+    # db_uri = os.getenv(
+    #     "SQLALCHEMY_DATABASE_URI",
+    #     "mysql+pymysql://root@localhost:3306/sen2?charset=utf8mb4",
+    # )
     app.config.update(
         OUTPUT_DIR=str(getattr(settings, "OUTPUT_DIR", "")),
         S2_RGB_TIF=str(getattr(settings, "S2_RGB_TIF", "")),
-        SQLALCHEMY_DATABASE_URI=db_uri,
+
+
+        SQLALCHEMY_DATABASE_URI = "mysql+pymysql://root:@localhost:3306/sen2?charset=utf8mb4",
+
+
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 1800},
     )
@@ -121,8 +136,12 @@ def create_app() -> Flask:
     return app
 
 
+# if __name__ == "__main__":
+#     app = create_app()
+#     port = int(os.getenv("FLASK_PORT", "5001"))
+#     debug = bool(int(os.getenv("DEBUG", "0")))
+#     app.run(host="0.0.0.0", port=port, debug=debug)
+
 if __name__ == "__main__":
     app = create_app()
-    port = int(os.getenv("FLASK_PORT", "5001"))
-    debug = bool(int(os.getenv("DEBUG", "0")))
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    app.run(host="127.0.0.1", port=5000, debug=True)

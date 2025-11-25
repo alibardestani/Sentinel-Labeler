@@ -16,10 +16,17 @@ L.tileLayer(
   }
 ).addTo(map);
 
+//_______________________________________________________________________
+function updateLabeledBadge() {
+  const { labeled, total } = computeProgress();
+  document.getElementById("labeledCount").textContent = `Labeled: ${labeled}`;
+}
+//__________________________________________________________________________
+
 // Globals
-let geoLayer = null;      // L.geoJSON layer with all assigned polygons
-let layerList = [];       // Flat list of individual polygon layers
-let currentIndex = -1;    // Currently selected polygon index
+let geoLayer = null; // L.geoJSON layer with all assigned polygons
+let layerList = []; // Flat list of individual polygon layers
+let currentIndex = -1; // Currently selected polygon index
 
 // UI elements
 const prevBtn = document.getElementById("prevBtn");
@@ -32,16 +39,16 @@ const saveLink = document.getElementById("saveLink");
 // Helpers (style / tooltip)
 // ---------------------------
 function qualityColor(q) {
-  if (q === "excellent") return "#17a34a";  // green
+  if (q === "excellent") return "#17a34a"; // green
   if (q === "acceptable") return "#f59e0b"; // amber
-  if (q === "bad") return "#ef4444";  // red
-  return "#6b7280";                          // gray / null
+  if (q === "bad") return "#ef4444"; // red
+  return "#6b7280"; // gray / null
 }
 
 function baseStyle(feature) {
   const q = feature?.properties?.quality ?? null;
   return {
-    color: "#111827",         // stroke
+    color: "#111827", // stroke
     weight: 1,
     fillColor: qualityColor(q),
     fillOpacity: 0.4,
@@ -100,7 +107,9 @@ function openQualityPopup(latlng, layer) {
     document.querySelectorAll(".popup-actions button").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const val = e.target.getAttribute("data-q");
-        layer.feature.properties.quality = (val === "None") ? null : val;
+        layer.feature.properties.quality = val === "None" ? null : val;
+
+        updateLabeledBadge();
 
         // Re-style + refresh tooltip
         layer.setStyle(baseStyle(layer.feature));
@@ -127,7 +136,8 @@ function enableNavButtons(enabled) {
 
 function updatePosition() {
   const total = layerList.length;
-  position.textContent = (total === 0) ? "0 / 0" : `${currentIndex + 1} / ${total}`;
+  position.textContent =
+    total === 0 ? "0 / 0" : `${currentIndex + 1} / ${total}`;
 }
 
 function goToIndex(idx) {
@@ -156,14 +166,13 @@ function computeProgress() {
   let labeled = 0;
   let total = layerList.length;
 
-  layerList.forEach(layer => {
+  layerList.forEach((layer) => {
     const q = layer?.feature?.properties?.quality ?? null;
     if (q) labeled += 1;
   });
 
   return { labeled, total, remaining: total - labeled };
 }
-
 
 // ---------------------------
 // Buttons
@@ -197,14 +206,18 @@ saveBtn.addEventListener("click", async () => {
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.status === "ok") {
       const { labeled, total, remaining } = computeProgress();
+
+      updateLabeledBadge();
+
       saveLink.innerHTML = `
         Saved ${data.updated} feature(s).<br>
         <b>${labeled}</b> labeled / <b>${total}</b> total
         — <b>${remaining}</b> remaining
       `;
-
     } else {
-      saveLink.textContent = `Save failed: ${data.error || res.statusText || "Unknown error"}`;
+      saveLink.textContent = `Save failed: ${
+        data.error || res.statusText || "Unknown error"
+      }`;
     }
   } catch (err) {
     saveLink.textContent = `Save failed: ${err?.message || String(err)}`;
@@ -226,7 +239,9 @@ async function loadAssignedFromServer() {
   geoLayer = L.geoJSON(gj, {
     style: baseStyle,
     onEachFeature: (feature, layer) => {
-      layer.bindTooltip(buildTooltip(feature.properties || {}), { sticky: true });
+      layer.bindTooltip(buildTooltip(feature.properties || {}), {
+        sticky: true,
+      });
 
       // keep layer for navigation
       layerList.push(layer);
@@ -249,27 +264,30 @@ async function loadAssignedFromServer() {
   }).addTo(map);
 
   // zoom to extent
-  try { map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] }); } catch (_) { }
+  try {
+    map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] });
+  } catch (_) {}
 
   if (layerList.length > 0) {
+    // Show initial progress for this user
+    const { labeled, total, remaining } = computeProgress();
 
-      // Show initial progress for this user
-      const { labeled, total, remaining } = computeProgress();
-      saveLink.innerHTML = `
+    updateLabeledBadge();
+
+    saveLink.innerHTML = `
         <b>${labeled}</b> labeled / <b>${total}</b> total
         — <b>${remaining}</b> remaining
       `;
+    updateLabeledBadge();
 
-      enableNavButtons(true);
-      goToIndex(0);
-
+    enableNavButtons(true);
+    goToIndex(0);
   } else {
-      enableNavButtons(false);
-       currentIndex = -1;
-      updatePosition();
-      saveLink.textContent = "No polygons assigned.";
+    enableNavButtons(false);
+    currentIndex = -1;
+    updatePosition();
+    saveLink.textContent = "No polygons assigned.";
   }
-
 }
 
 // Initial load

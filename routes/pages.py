@@ -22,15 +22,15 @@ def _is_admin() -> bool:
     u = db.session.get(User, uid)
     return bool(getattr(u, "is_admin", False))
 
-def _user_has_any_assignment() -> bool:
-    uid = session.get("user_id")
-    if not uid:
-        return False
-    return bool(
-        db.session.query(func.count(AssignedTile.id))
-        .filter(AssignedTile.user_id == uid)
-        .scalar()
-    )
+# def _user_has_any_assignment() -> bool:
+#     uid = session.get("user_id")
+#     if not uid:
+#         return False
+#     return bool(
+#         db.session.query(func.count(AssignedTile.id))
+#         .filter(AssignedTile.user_id == uid)
+#         .scalar()
+    # )
 
 @pages_bp.get("/")
 @login_required
@@ -40,15 +40,15 @@ def home():
 @pages_bp.get("/brush")
 @login_required
 def brush():
-    if not _is_admin() and not _user_has_any_assignment():
-        return redirect(url_for("pages_bp.no_access"))
+#     if not _is_admin() and not _user_has_any_assignment():
+#         return redirect(url_for("pages_bp.no_access"))
     return render_template("brush.html")
 
 @pages_bp.get("/polygon")
 @login_required
 def polygon():
-    if not _is_admin() and not _user_has_any_assignment():
-        return redirect(url_for("pages_bp.no_access"))
+#     if not _is_admin() and not _user_has_any_assignment():
+#         return redirect(url_for("pages_bp.no_access"))
     return render_template("polygon.html")
 
 @pages_bp.get("/no-access")
